@@ -1,1 +1,18 @@
+<server description="Default Server Configuration">
+    <featureManager>
+        <feature>webProfile-8.0</feature>
+        <feature>localConnector-1.0</feature>
+    </featureManager>
 
+    <httpEndpoint id="defaultHttpEndpoint"
+                  httpPort="9080"
+                  httpsPort="9443"
+                  host="*" />
+
+    <applicationMonitor updateTrigger="mbean" />
+    <config updateTrigger="mbean"/>
+    
+    <logging consoleLogLevel="INFO" 
+             copyToStdOut="true" 
+             messageFileName="messages.log" />
+</server>
