@@ -26,13 +26,13 @@ def call(Map config) {
         parameters {
             choice(
                 name        : 'APLICATIVO',
-                choices     : ['SICATEL', 'KIOSCO'],
+                choices     : ['MDELALUZ-QUARKUS-GAME', 'KIOSCO'],
                 description : 'Selecciona el aplicativo destino del despliegue'
             )
             choice(
                 name        : 'AMBIENTE',
                 choices     : ['DEV', 'QA', 'PREPROD'],
-                description : 'SICATEL: DEV, QA | KIOSCO: PREPROD'
+                description : 'MDELALUZ-QUARKUS-GAME: DEV, QA | KIOSCO: PREPROD'
             )
             booleanParam(
                 name         : 'SKIP_SONARQUBE',
@@ -51,7 +51,7 @@ def call(Map config) {
             GIT_REPO_URL    = "${gitRepoUrl}"
             GIT_CREDENTIALS = "${gitCredentials}"
             RAMA            = "${params.RAMA_OVERRIDE?.trim() ?: (params.AMBIENTE == 'QA' || params.AMBIENTE == 'PREPROD' ? 'main' : 'develop')}"
-            SICATEL_PROFILE = "${params.AMBIENTE?.toLowerCase() ?: 'dev'}"
+            APP_PROFILE     = "${params.AMBIENTE?.toLowerCase() ?: 'dev'}"
             DEPLOY_ENV      = "${params.AMBIENTE ?: 'DEV'}"
             QUAY_REGISTRY   = "${quayRegistry}"
             OPENSHIFT_API   = "${openshiftApi}"
@@ -77,7 +77,7 @@ def call(Map config) {
                         echo "  Aplicativo  : ${params.APLICATIVO}"
                         echo "  Rama        : ${RAMA}"
                         echo "  Ambiente    : ${DEPLOY_ENV}"
-                        echo "  Perfil      : ${SICATEL_PROFILE}"
+                        echo "  Perfil      : ${APP_PROFILE}"
                         echo "  Build #     : ${env.BUILD_NUMBER}"
                         echo "  Cluster API : ${OPENSHIFT_API}"
                         echo "  Quay Repo   : ${QUAY_REGISTRY}"
@@ -149,7 +149,7 @@ def call(Map config) {
                 steps {
                     script {
                         withSonarQubeEnv('SonarQubeServer') {
-                            sh "mvn sonar:sonar -Dsonar.projectName=${APP_NAME} -Dsonar.projectKey=${APP_NAME} -P${SICATEL_PROFILE}"
+                            sh "mvn sonar:sonar -Dsonar.projectName=${APP_NAME} -Dsonar.projectKey=${APP_NAME} -P${APP_PROFILE}"
                         }
                         timeout(time: 10, unit: 'MINUTES') {
                             script {
@@ -165,7 +165,7 @@ def call(Map config) {
 
             stage('Build') {
                 steps {
-                    sh "mvn clean verify -B -P${SICATEL_PROFILE} -DskipTests"
+                    sh "mvn clean verify -B -P${APP_PROFILE} -DskipTests"
                     sh '''
                         echo "=== Artefactos generados ==="
                         find . -path "*/target/*.jar" -o -path "*/target/*.ear" | while read f; do
@@ -274,7 +274,7 @@ def call(Map config) {
                             params.RAMA_OVERRIDE?.trim() ? true : RAMA in ['develop', 'main']
                         }
                         expression {
-                            (params.APLICATIVO == 'SICATEL' && params.AMBIENTE in ['DEV', 'QA']) ||
+                            (params.APLICATIVO == 'MDELALUZ-QUARKUS-GAME' && params.AMBIENTE in ['DEV', 'QA']) ||
                             (params.APLICATIVO == 'KIOSCO'  && params.AMBIENTE == 'PREPROD')
                         }
                     }
