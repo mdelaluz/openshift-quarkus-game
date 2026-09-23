@@ -22,7 +22,7 @@ jenkins-shared-library/
 └── README.md                       # Documentación técnica del proyecto
 ```
 
-## 2. Descripción Paso a Paso de los Archivos
+## 2. Descripción Paso a Paso de los Archivos 
 
 ```shell
  vars/buildPipeline.groovy
