@@ -5,7 +5,6 @@ def call(Map config) {
     def gitDeployRepoUrl    = config.gitDeployRepoUrl ?: ''
     def gitCredentials      = config.gitCredentials ?: 'gitlab-deploy-token-38'
     def mavenTool           = config.mavenTool      ?: 'apache-maven-3.3.9'
-    def jdkTool             = config.jdkTool        ?: 'Oracle JDK jdk1.8.0_144'
     def staticAssetsEnabled = config.staticAssetsEnabled == null ? true : config.staticAssetsEnabled
     def staticAssetsDir     = config.staticAssetsDir ?: 'container-assets'
     def staticAssetsProfile = config.staticAssetsProfile ?: 'core'
@@ -20,7 +19,6 @@ def call(Map config) {
 
         tools {
             maven "${mavenTool}"
-            jdk   "${jdkTool}"
         }
 
         parameters {
@@ -42,7 +40,7 @@ def call(Map config) {
             string(
                 name         : 'RAMA_OVERRIDE',
                 defaultValue : '',
-                description  : 'Rama a desplegar (opcional). Si se deja vacío: QA/PREPROD -> main | DEV -> develop'
+                description  : 'Rama a desplegar (opcional). Si se deja vacío: main'
             )
         }
 
@@ -50,7 +48,6 @@ def call(Map config) {
             APP_NAME        = "${appName}"
             GIT_REPO_URL    = "${gitRepoUrl}"
             GIT_CREDENTIALS = "${gitCredentials}"
-            //RAMA            = "${params.RAMA_OVERRIDE?.trim() ?: (params.AMBIENTE == 'QA' || params.AMBIENTE == 'PREPROD' ? 'main' : 'develop')}"
             RAMA            = "${params.RAMA_OVERRIDE?.trim() ?: 'main'}"
             APP_PROFILE     = "${params.AMBIENTE?.toLowerCase() ?: 'dev'}"
             DEPLOY_ENV      = "${params.AMBIENTE ?: 'DEV'}"
@@ -64,7 +61,6 @@ def call(Map config) {
         options {
             buildDiscarder(logRotator(numToKeepStr: '5'))
             disableConcurrentBuilds()
-            //timestamps()
             timeout(time: 2, unit: 'HOURS')
         }
 
@@ -89,7 +85,7 @@ def call(Map config) {
                             usernameVariable: 'GIT_USER',
                             passwordVariable: 'GIT_TOKEN'
                         )]) {
-                            sh "git ls-remote https://\${GIT_USER}:\${GIT_TOKEN}@${GIT_REPO_URL.replace('https://', '')} HEAD"
+                            sh "git ls-remote https://${GIT_USER}:${GIT_TOKEN}@${GIT_REPO_URL.replace('https://', '')} HEAD"
                         }
                         echo "=== Repositorio Git accesible ==="
                     }
@@ -167,13 +163,8 @@ def call(Map config) {
             stage('Build') {
                 steps {
                     sh "mvn clean verify -B -P${APP_PROFILE} -DskipTests"
-                    sh '''
-                        echo "=== Artefactos generados ==="
-                        find . -path "*/target/*.jar" -o -path "*/target/*.ear" | while read f; do
-                            size=$(du -sh "$f" | cut -f1)
-                            echo "  [OK] $f ($size)"
-                        done
-                    '''
+                    sh 'echo "=== Artefactos generados ==="'
+                    sh 'find . -path "*/target/*.jar" -o -path "*/target/*.ear"'
                 }
                 post {
                     success {
@@ -201,12 +192,9 @@ def call(Map config) {
                     script {
                         echo "Etiquetando versión de integración: v${env.APP_VERSION}"
                         withCredentials([usernamePassword(credentialsId: "${GIT_CREDENTIALS}", usernameVariable: 'GIT_USER', passwordVariable: 'GIT_TOKEN')]) {
-                            sh """
-                                git config user.email "jenkins@ci.com"
-                                git config user.name "Jenkins CI"
-                                git tag -a "v${env.APP_VERSION}" -m "Build de integración automática #${env.BUILD_NUMBER}" || true
-                                git push https://\${GIT_USER}:\${GIT_TOKEN}@${GIT_REPO_URL.replace('https://', '')} "v${env.APP_VERSION}" || true
-                            """
+                            sh 'git config user.email "jenkins@ci.com"'
+                            sh 'git config user.name "Jenkins CI"'
+                            sh 'git tag -a "v' + env.APP_VERSION + '" -m "Build de integración automática #' + env.BUILD_NUMBER + '" || true'
                         }
                     }
                 }
@@ -252,13 +240,8 @@ def call(Map config) {
                         sh "podman build -f ${dockerfileOutputPath} -t ${imageTag} ."
 
                         withCredentials([usernamePassword(credentialsId: 'quay-push', usernameVariable: 'QUAY_USER', passwordVariable: 'QUAY_PASSWORD')]) {
-                            sh """
-                                set +x
-                                export REGISTRY_AUTH_FILE="\$WORKSPACE/.quay-auth.json"
-                                printf '%s' "\$QUAY_PASSWORD" | podman login ${QUAY_REGISTRY.split('/')[0]} --username "\$QUAY_USER" --password-stdin
-                                podman push --digestfile image-digest.txt ${imageTag}
-                                podman logout ${QUAY_REGISTRY.split('/')[0]}
-                            """
+                            sh 'printf "%s" "$QUAY_PASSWORD" | podman login ' + QUAY_REGISTRY.split('/')[0] + ' --username "$QUAY_USER" --password-stdin'
+                            sh 'podman push --digestfile image-digest.txt ' + imageTag
                         }
 
                         env.IMAGE_DIGEST = readFile('image-digest.txt').trim()
@@ -286,28 +269,10 @@ def call(Map config) {
                         echo "Desplegando en OpenShift (${OPENSHIFT_API}) - Namespace: ${targetNamespace}"
 
                         withCredentials([string(credentialsId: 'oc-dev-token', variable: 'OC_TOKEN')]) {
-                            sh """
-                                set +x
-                                export KUBECONFIG="\$WORKSPACE/.kubeconfig"
-                                oc login ${OPENSHIFT_API} --token="\$OC_TOKEN" --insecure-skip-tls-verify=true
-                                oc project ${targetNamespace} || oc new-project ${targetNamespace}
-                                
-                                if oc get deployment ${APP_NAME} -n ${targetNamespace} >/dev/null 2>&1; then
-                                    oc set image deployment/${APP_NAME} ${APP_NAME}=${env.IMAGE_REF} -n ${targetNamespace}
-                                else
-                                    oc create deployment ${APP_NAME} --image=${env.IMAGE_REF} -n ${targetNamespace}
-                                fi
-                                
-                                if ! oc get service ${APP_NAME} -n ${targetNamespace} >/dev/null 2>&1; then
-                                    oc expose deployment ${APP_NAME} --port=8080 -n ${targetNamespace}
-                                fi
-                                
-                                if ! oc get route ${APP_NAME} -n ${targetNamespace} >/dev/null 2>&1; then
-                                    oc expose service ${APP_NAME} -n ${targetNamespace}
-                                fi
-                                
-                                oc rollout status deployment/${APP_NAME} -n ${targetNamespace} --timeout=5m
-                            """
+                            sh 'oc login ' + OPENSHIFT_API + ' --token="$OC_TOKEN" --insecure-skip-tls-verify=true'
+                            sh 'oc project ' + targetNamespace + ' || oc new-project ' + targetNamespace
+                            sh 'oc set image deployment/' + APP_NAME + ' ' + APP_NAME + '="' + env.IMAGE_REF + '" -n ' + targetNamespace + ' || oc create deployment ' + APP_NAME + ' --image="' + env.IMAGE_REF + '" -n ' + targetNamespace
+                            sh 'oc rollout status deployment/' + APP_NAME + ' -n ' + targetNamespace + ' --timeout=5m'
                         }
                     }
                 }
@@ -316,10 +281,8 @@ def call(Map config) {
             stage('Remove registry repository tags') {
                 steps {
                     script {
-                        sh """
-                            podman rmi ${QUAY_REGISTRY}:${DEPLOY_ENV.toLowerCase()}-${env.BUILD_NUMBER} || true
-                            podman image prune -f --filter "until=24h" || true
-                        """
+                        sh "podman rmi ${QUAY_REGISTRY}:${DEPLOY_ENV.toLowerCase()}-${env.BUILD_NUMBER} || true"
+                        sh "podman image prune -f --filter 'until=24h' || true"
                     }
                 }
             }
@@ -328,7 +291,7 @@ def call(Map config) {
 
         post {
             always {
-                cleanWs()
+                deleteDir()
             }
             success {
                 echo "Pipeline ${APP_NAME} finalizado correctamente en ${DEPLOY_ENV}"
