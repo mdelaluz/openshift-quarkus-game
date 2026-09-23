@@ -11,9 +11,8 @@ def call(Map config) {
     def dockerfileEnabled   = config.dockerfileEnabled == null ? true : config.dockerfileEnabled
     def dockerfileOutputPath = config.dockerfileOutputPath ?: 'Dockerfile'
     def dockerBaseImage     = config.dockerBaseImage ?: 'registry.access.redhat.com/ubi9/openjdk-17-runtime:latest'
-    def quayRegistry        = config.quayRegistry ?: 'quay-svr5h.apps.cluster-svr5h.svr5h.sandbox1725.opentlc.com/quayadmin/quarkus-game'
-    def openshiftApi        = config.openshiftApi ?: 'https://api.cluster-svr5h.svr5h.sandbox1725.opentlc.com:6443'
-
+    def quayRegistry = config.quayRegistry ?: 'quay-9tfrr.apps.cluster-9tfrr.9tfrr.sandbox1834.opentlc.com/quayadmin/quarkus-game'
+    def openshiftApi = config.openshiftApi ?: 'https://api.cluster-9tfrr.9tfrr.sandbox1834.opentlc.com:6443'
     pipeline {
         agent any
 
