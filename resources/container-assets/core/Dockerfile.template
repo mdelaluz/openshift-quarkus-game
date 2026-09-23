@@ -1,5 +1,19 @@
 FROM __BASE_IMAGE__
-COPY __ASSET_DIR__/server.xml /config/
+
+# Copia de recursos estáticos de configuración
+COPY __ASSET_DIR__/server.xml /config/server.xml
+COPY __ASSET_DIR__/init-logs.sh /opt/init-logs.sh
+COPY __ASSET_DIR__/validate-startup.sh /opt/validate-startup.sh
+
+# Copia del binario compilado generado en el Stage Build
 COPY __ASSET_DIR__/__EAR_FILE__ /config/dropins/
-COPY __ASSET_DIR__/init-logs.sh /opt/
-COPY __ASSET_DIR__/validate-startup.sh /opt/
+
+USER root
+RUN chmod +x /opt/init-logs.sh /opt/validate-startup.sh && \
+    /opt/init-logs.sh
+
+USER 1001
+
+EXPOSE 9080 9443
+
+CMD ["/opt/ol/wlp/bin/server", "run", "defaultServer"]
