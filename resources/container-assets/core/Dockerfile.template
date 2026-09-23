@@ -1,1 +1,5 @@
-
+FROM __BASE_IMAGE__
+COPY __ASSET_DIR__/server.xml /config/
+COPY __ASSET_DIR__/__EAR_FILE__ /config/dropins/
+COPY __ASSET_DIR__/init-logs.sh /opt/
+COPY __ASSET_DIR__/validate-startup.sh /opt/
