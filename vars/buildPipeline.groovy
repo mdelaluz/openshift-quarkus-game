@@ -11,7 +11,7 @@ def call(Map config) {
     def staticAssetsProfile = config.staticAssetsProfile ?: 'core'
     def dockerfileEnabled   = config.dockerfileEnabled == null ? true : config.dockerfileEnabled
     def dockerfileOutputPath = config.dockerfileOutputPath ?: 'Dockerfile'
-    def dockerBaseImage     = config.dockerBaseImage ?: 'mdelaluz-quay-mdelaluz-quay.apps.dev.mdelaluzcloud.dt/mdelaluz/websphere-liberty-ubi8:kernel-ubi-min'
+    def dockerBaseImage     = config.dockerBaseImage ?: 'registry.access.redhat.com/ubi9/openjdk-17-runtime:latest'
     def quayRegistry        = config.quayRegistry ?: 'quay-svr5h.apps.cluster-svr5h.svr5h.sandbox1725.opentlc.com/quayadmin/quarkus-game'
     def openshiftApi        = config.openshiftApi ?: 'https://api.cluster-svr5h.svr5h.sandbox1725.opentlc.com:6443'
 
@@ -79,6 +79,8 @@ def call(Map config) {
                         echo "  Ambiente    : ${DEPLOY_ENV}"
                         echo "  Perfil      : ${SICATEL_PROFILE}"
                         echo "  Build #     : ${env.BUILD_NUMBER}"
+                        echo "  Cluster API : ${OPENSHIFT_API}"
+                        echo "  Quay Repo   : ${QUAY_REGISTRY}"
                         echo "========================================="
 
                         withCredentials([usernamePassword(
@@ -88,7 +90,7 @@ def call(Map config) {
                         )]) {
                             sh "git ls-remote https://\${GIT_USER}:\${GIT_TOKEN}@${GIT_REPO_URL.replace('https://', '')} HEAD"
                         }
-                        echo "=== GitLab accesible ==="
+                        echo "=== Repositorio Git accesible ==="
                     }
                 }
             }
@@ -106,7 +108,6 @@ def call(Map config) {
                             ]]
                         ])
                         
-                        // Extraer versión de pom.xml o generar versión basada en Git + Build Number
                         def baseVersion = sh(
                             script: "mvn help:evaluate -Dexpression=project.version -q -DforceStdout || echo '1.0.0'",
                             returnStdout: true
@@ -222,15 +223,9 @@ def call(Map config) {
                             writeFile file: "${assetBase}/init-logs.sh", text: libraryResource("container-assets/${assetProfile}/init-logs.sh")
                             writeFile file: "${assetBase}/validate-startup.sh", text: libraryResource("container-assets/${assetProfile}/validate-startup.sh")
                             sh "chmod +x ${assetBase}/init-logs.sh ${assetBase}/validate-startup.sh"
-                            sh "ls -l -a ${assetBase}"
-                            echo "Static container assets generated in ${assetBase} (profile: ${assetProfile})"
                         }
 
                         if (dockerfileEnabled) {
-                            if (!staticAssetsEnabled) {
-                                error 'dockerfileEnabled=true requires staticAssetsEnabled=true because Dockerfile template uses static assets paths'
-                            }
-
                             def earSourcePath = sh(
                                 script: "find . -path '*/target/*.ear' -o -path '*/target/*.jar' | sort | head -n 1",
                                 returnStdout: true
@@ -250,10 +245,8 @@ def call(Map config) {
                                 .replace('__EAR_FILE__', earFileName)
 
                             writeFile file: dockerfileOutputPath, text: dockerfileContent
-                            echo "Dockerfile generated at ${dockerfileOutputPath} using artifact ${earFileName}"
                         }
 
-                        // Construcción y publicación en Quay Registry con Podman
                         def imageTag = "${QUAY_REGISTRY}:${DEPLOY_ENV.toLowerCase()}-${env.BUILD_NUMBER}"
                         sh "podman build -f ${dockerfileOutputPath} -t ${imageTag} ."
 
@@ -269,7 +262,7 @@ def call(Map config) {
 
                         env.IMAGE_DIGEST = readFile('image-digest.txt').trim()
                         env.IMAGE_REF = "${QUAY_REGISTRY}@${env.IMAGE_DIGEST}"
-                        echo "Imagen construida y publicada exitosamente: ${env.IMAGE_REF}"
+                        echo "Imagen publicada en Quay: ${env.IMAGE_REF}"
                     }
                 }
             }
@@ -289,14 +282,14 @@ def call(Map config) {
                 steps {
                     script {
                         def targetNamespace = "${params.APLICATIVO.toLowerCase()}-${DEPLOY_ENV.toLowerCase()}"
-                        echo "Desplegando ${params.APLICATIVO} en OpenShift namespace: ${targetNamespace}"
+                        echo "Desplegando en OpenShift (${OPENSHIFT_API}) - Namespace: ${targetNamespace}"
 
                         withCredentials([string(credentialsId: 'oc-dev-token', variable: 'OC_TOKEN')]) {
                             sh """
                                 set +x
                                 export KUBECONFIG="\$WORKSPACE/.kubeconfig"
                                 oc login ${OPENSHIFT_API} --token="\$OC_TOKEN" --insecure-skip-tls-verify=true
-                                oc project ${targetNamespace}
+                                oc project ${targetNamespace} || oc new-project ${targetNamespace}
                                 
                                 if oc get deployment ${APP_NAME} -n ${targetNamespace} >/dev/null 2>&1; then
                                     oc set image deployment/${APP_NAME} ${APP_NAME}=${env.IMAGE_REF} -n ${targetNamespace}
@@ -322,7 +315,6 @@ def call(Map config) {
             stage('Remove registry repository tags') {
                 steps {
                     script {
-                        echo "Limpiando etiquetas antiguas e imágenes locales..."
                         sh """
                             podman rmi ${QUAY_REGISTRY}:${DEPLOY_ENV.toLowerCase()}-${env.BUILD_NUMBER} || true
                             podman image prune -f --filter "until=24h" || true
@@ -338,7 +330,7 @@ def call(Map config) {
                 cleanWs()
             }
             success {
-                echo "Pipeline ${APP_NAME} finalizado correctamente — ${DEPLOY_ENV}"
+                echo "Pipeline ${APP_NAME} finalizado correctamente en ${DEPLOY_ENV}"
             }
             failure {
                 echo "Pipeline ${APP_NAME} fallido. Revisa los logs."
