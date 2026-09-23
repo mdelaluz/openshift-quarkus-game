@@ -108,7 +108,8 @@ def call(Map config) {
                         def baseVersion = sh(
                             //script: "mvn help:evaluate -Dexpression=project.version -q -DforceStdout || echo '1.0.0'",
                             //script: "mvn help:evaluate -Dexpression=project.version -q -DforceStdout 2>/dev/null | grep -v 'Picked up' | tail -n 1 || echo '1.0.0'",
-                            script: "JAVA_TOOL_OPTIONS='' mvn help:evaluate -Dexpression=project.version -q -DforceStdout | tr -d '\\r\\n' || echo '1.0.0'",
+                            //script: "JAVA_TOOL_OPTIONS='' mvn help:evaluate -Dexpression=project.version -q -DforceStdout | tr -d '\\r\\n' || echo '1.0.0'",
+                            script: "JAVA_TOOL_OPTIONS='' bash -c 'if [ -f ./mvnw ]; then chmod +x ./mvnw && ./mvnw help:evaluate -Dexpression=project.version -q -DforceStdout; else mvn help:evaluate -Dexpression=project.version -q -DforceStdout; fi' | tr -d '\\r\\n' || echo '1.0.0'",
                             returnStdout: true
                         ).trim()
                         
@@ -144,7 +145,8 @@ def call(Map config) {
             stage('Build') {
                 steps {
                     //sh "mvn clean verify -B -P${APP_PROFILE} -DskipTests"
-                    sh "mvn clean verify -B -DskipTests"
+                    //sh "mvn clean verify -B -DskipTests"
+                    sh "if [ -f ./mvnw ]; then chmod +x ./mvnw && ./mvnw clean verify -B -DskipTests; else mvn clean verify -B -DskipTests; fi"
                     sh 'echo "=== Artefactos generados ==="'
                     sh 'find . -path "*/target/*.jar" -o -path "*/target/*.ear"'
                 }
@@ -167,7 +169,8 @@ def call(Map config) {
                     script {
                         withSonarQubeEnv('SonarQubeServer') {
                             //sh "mvn sonar:sonar -Dsonar.projectName=${APP_NAME} -Dsonar.projectKey=${APP_NAME} -P${APP_PROFILE}"
-                            sh "mvn org.sonarsource.scanner.maven:sonar-maven-plugin:sonar -Dsonar.projectName=${APP_NAME} -Dsonar.projectKey=${APP_NAME}"
+                            //sh "mvn org.sonarsource.scanner.maven:sonar-maven-plugin:sonar -Dsonar.projectName=${APP_NAME} -Dsonar.projectKey=${APP_NAME}"
+                              sh "if [ -f ./mvnw ]; then ./mvnw org.sonarsource.scanner.maven:sonar-maven-plugin:sonar -Dsonar.projectName=${APP_NAME} -Dsonar.projectKey=${APP_NAME}; else mvn org.sonarsource.scanner.maven:sonar-maven-plugin:sonar -Dsonar.projectName=${APP_NAME} -Dsonar.projectKey=${APP_NAME}; fi"
                         }
                         timeout(time: 10, unit: 'MINUTES') {
                             script {
