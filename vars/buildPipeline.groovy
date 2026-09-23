@@ -4,7 +4,7 @@ def call(Map config) {
     def gitRepoUrl          = config.gitRepoUrl ?: 'https://github.com/psehgaft/openshift-quarkus-game.git'
     def gitDeployRepoUrl    = config.gitDeployRepoUrl ?: ''
     def gitCredentials      = config.gitCredentials ?: 'gitlab-deploy-token-38'
-    def mavenTool           = config.mavenTool      ?: 'apache-maven-3.3.9'
+    def mavenTool           = config.mavenTool      ?: 'apache-maven-3.9.6'
     def staticAssetsEnabled = config.staticAssetsEnabled == null ? true : config.staticAssetsEnabled
     def staticAssetsDir     = config.staticAssetsDir ?: 'container-assets'
     def staticAssetsProfile = config.staticAssetsProfile ?: 'core'
@@ -17,10 +17,10 @@ def call(Map config) {
     pipeline {
         agent any
 
-        //Esto si se necesita para la aplicacion Sicatel
-        //tools {
-        //    maven "${mavenTool}"
-        //}
+        //Esto si se necesita para la aplicacion Sicatel, para sicatel necesita la 3.3.9
+        tools {
+            maven "${mavenTool}"
+        }
 
         parameters {
             choice(
@@ -112,20 +112,12 @@ def call(Map config) {
                             //script: "JAVA_TOOL_OPTIONS='' mvn help:evaluate -Dexpression=project.version -q -DforceStdout | tr -d '\\r\\n' || echo '1.0.0'",
                             //script: "JAVA_TOOL_OPTIONS='' bash -c 'if [ -f ./mvnw ]; then chmod +x ./mvnw && ./mvnw help:evaluate -Dexpression=project.version -q -DforceStdout; else mvn help:evaluate -Dexpression=project.version -q -DforceStdout; fi' | tr -d '\\r\\n' || echo '1.0.0'",
                             //script: "mvn help:evaluate -Dexpression=project.version -q -DforceStdout 2>/dev/null | grep -v 'Picked up' | tr -d '\\r\\n' || echo '1.0.0'",
-                            script: '''
-                                if [ -f ./mvnw ]; then
-                                    chmod +x ./mvnw
-                                    ./mvnw help:evaluate -Dexpression=project.version -q -DforceStdout 2>/dev/null | grep -v 'Picked up' | tr -d '\r\n'
-                                elif command -v mvn >/dev/null 2>&1; then
-                                    mvn help:evaluate -Dexpression=project.version -q -DforceStdout 2>/dev/null | grep -v 'Picked up' | tr -d '\r\n'
-                                else
-                                    echo "1.0.0"
-                                fi
-                            ''',
+                            script: "mvn help:evaluate -Dexpression=project.version -q -DforceStdout 2>/dev/null | grep -v 'Picked up' | tr -d '\\r\\n' || echo '1.0.0'",
                             returnStdout: true
                         ).trim()
                         
-                        env.APP_VERSION = "${baseVersion}-${env.BUILD_NUMBER}"
+                        //env.APP_VERSION = "${baseVersion}-${env.BUILD_NUMBER}"
+                        env.APP_VERSION = "${(baseVersion && baseVersion != 'null') ? baseVersion : '1.0.0'}-${env.BUILD_NUMBER}"
                         echo "Versión calculada para el artefacto: ${env.APP_VERSION}"
                     }
                 }
@@ -154,87 +146,37 @@ def call(Map config) {
                 }
             }
 
-            //stage('Build') {
-            //    steps {
-                    //sh "mvn clean verify -B -P${APP_PROFILE} -DskipTests"
-                    //sh "mvn clean verify -B -DskipTests"
-            //        sh "if [ -f ./mvnw ]; then chmod +x ./mvnw && ./mvnw clean verify -B -DskipTests; else mvn clean verify -B -DskipTests; fi"
-            //        sh 'echo "=== Artefactos generados ==="'
-            //        sh 'find . -path "*/target/*.jar" -o -path "*/target/*.ear"'
-            //    }
-            //    post {
-            //        success {
-            //            archiveArtifacts artifacts: '**/target/*.jar,**/target/*.ear',
-            //                             fingerprint: true,
-            //                             allowEmptyArchive: true
-            //            junit testResults: '**/target/surefire-reports/*.xml',
-            //                  allowEmptyResults: true
-            //        }
-            //    }
-            //}
-
             stage('Build') {
                 steps {
-                    //sh "mvn clean verify -B -DskipTests"
-                    sh '''
-                            if [ -f ./mvnw ]; then
-                                chmod +x ./mvnw && ./mvnw clean verify -B -DskipTests
-                            else
-                                mvn clean verify -B -DskipTests
-                            fi
-                        '''
+                    //sh "mvn clean verify -B -P${APP_PROFILE} -DskipTests"
+                    sh "mvn clean verify -B -DskipTests"
+                    //sh "if [ -f ./mvnw ]; then chmod +x ./mvnw && ./mvnw clean verify -B -DskipTests; else mvn clean verify -B -DskipTests; fi"
                     sh 'echo "=== Artefactos generados ==="'
-                    sh 'find . -path "/target/.jar" -o -path "/target/.ear"'
+                    sh 'find . -path "*/target/*.jar" -o -path "*/target/*.ear"'
                 }
                 post {
                     success {
-                        archiveArtifacts artifacts: '*/target/.jar,*/target/.ear',
+                        archiveArtifacts artifacts: '**/target/*.jar,**/target/*.ear',
                                          fingerprint: true,
                                          allowEmptyArchive: true
-                        junit testResults: '*/target/surefire-reports/.xml',
+                        junit testResults: '**/target/surefire-reports/*.xml',
                               allowEmptyResults: true
                     }
                 }
             }
 
-     //       stage('SonarQube Analysis') {
-     //           when {
-     //               expression { params.SKIP_SONARQUBE == false }
-     //           }
-     //           steps {
-     //               script {
-     //                   withSonarQubeEnv('SonarQubeServer') {
-     //                       //sh "mvn sonar:sonar -Dsonar.projectName=${APP_NAME} -Dsonar.projectKey=${APP_NAME} -P${APP_PROFILE}"
-     //                       //sh "mvn org.sonarsource.scanner.maven:sonar-maven-plugin:sonar -Dsonar.projectName=${APP_NAME} -Dsonar.projectKey=${APP_NAME}"
-     //                         sh "if [ -f ./mvnw ]; then ./mvnw org.sonarsource.scanner.maven:sonar-maven-plugin:sonar -Dsonar.projectName=${APP_NAME} -Dsonar.projectKey=${APP_NAME}; else mvn org.sonarsource.scanner.maven:sonar-maven-plugin:sonar -Dsonar.projectName=${APP_NAME} -Dsonar.projectKey=${APP_NAME}; fi"
-     //                   }
-     //                   timeout(time: 10, unit: 'MINUTES') {
-     //                       script {
-     //                           def qg = waitForQualityGate()
-     //                           if (qg.status != 'OK') {
-     //                               error "Quality Gate falló con estado: ${qg.status}"
-     //                           }
-     //                       }
-     //                   }
-     //               }
-     //           }
-     //       }
+            
 
-        stage('SonarQube Analysis') {
+            stage('SonarQube Analysis') {
                 when {
                     expression { params.SKIP_SONARQUBE == false }
                 }
                 steps {
                     script {
                         withSonarQubeEnv('SonarQubeServer') {
-                            //sh "mvn org.sonarsource.scanner.maven:sonar-maven-plugin:sonar -Dsonar.projectName=${APP_NAME} -Dsonar.projectKey=${APP_NAME}"
-                            sh """
-                                    if [ -f ./mvnw ]; then
-                                        chmod +x ./mvnw && ./mvnw org.sonarsource.scanner.maven:sonar-maven-plugin:sonar -Dsonar.projectName=${APP_NAME} -Dsonar.projectKey=${APP_NAME}
-                                    else
-                                        mvn org.sonarsource.scanner.maven:sonar-maven-plugin:sonar -Dsonar.projectName=${APP_NAME} -Dsonar.projectKey=${APP_NAME}
-                                    fi
-                                """
+                            //sh "mvn sonar:sonar -Dsonar.projectName=${APP_NAME} -Dsonar.projectKey=${APP_NAME} -P${APP_PROFILE}"
+                            sh "mvn org.sonarsource.scanner.maven:sonar-maven-plugin:sonar -Dsonar.projectName=${APP_NAME} -Dsonar.projectKey=${APP_NAME}"
+                            //sh "if [ -f ./mvnw ]; then ./mvnw org.sonarsource.scanner.maven:sonar-maven-plugin:sonar -Dsonar.projectName=${APP_NAME} -Dsonar.projectKey=${APP_NAME}; else mvn org.sonarsource.scanner.maven:sonar-maven-plugin:sonar -Dsonar.projectName=${APP_NAME} -Dsonar.projectKey=${APP_NAME}; fi"
                         }
                         timeout(time: 10, unit: 'MINUTES') {
                             script {
@@ -246,9 +188,7 @@ def call(Map config) {
                         }
                     }
                 }
-            } 
-
-            
+            }           
 
             stage('Veracode Scan') {
                 steps {
