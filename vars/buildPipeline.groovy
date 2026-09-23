@@ -291,7 +291,6 @@ def call(Map config) {
             }
 
         }
-b
         post {
             always {
                 deleteDir()
