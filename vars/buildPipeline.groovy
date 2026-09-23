@@ -107,7 +107,8 @@ def call(Map config) {
                         
                         def baseVersion = sh(
                             //script: "mvn help:evaluate -Dexpression=project.version -q -DforceStdout || echo '1.0.0'",
-                            script: "mvn help:evaluate -Dexpression=project.version -q -DforceStdout 2>/dev/null | grep -v 'Picked up' | tail -n 1 || echo '1.0.0'",
+                            //script: "mvn help:evaluate -Dexpression=project.version -q -DforceStdout 2>/dev/null | grep -v 'Picked up' | tail -n 1 || echo '1.0.0'",
+                            script: "JAVA_TOOL_OPTIONS='' mvn help:evaluate -Dexpression=project.version -q -DforceStdout | tr -d '\\r\\n' || echo '1.0.0'",
                             returnStdout: true
                         ).trim()
                         
@@ -140,6 +141,24 @@ def call(Map config) {
                 }
             }
 
+            stage('Build') {
+                steps {
+                    //sh "mvn clean verify -B -P${APP_PROFILE} -DskipTests"
+                    sh "mvn clean verify -B -DskipTests"
+                    sh 'echo "=== Artefactos generados ==="'
+                    sh 'find . -path "*/target/*.jar" -o -path "*/target/*.ear"'
+                }
+                post {
+                    success {
+                        archiveArtifacts artifacts: '**/target/*.jar,**/target/*.ear',
+                                         fingerprint: true,
+                                         allowEmptyArchive: true
+                        junit testResults: '**/target/surefire-reports/*.xml',
+                              allowEmptyResults: true
+                    }
+                }
+            }
+
             stage('SonarQube Analysis') {
                 when {
                     expression { params.SKIP_SONARQUBE == false }
@@ -162,23 +181,7 @@ def call(Map config) {
                 }
             }
 
-            stage('Build') {
-                steps {
-                    //sh "mvn clean verify -B -P${APP_PROFILE} -DskipTests"
-                    sh "mvn clean verify -B -DskipTests"
-                    sh 'echo "=== Artefactos generados ==="'
-                    sh 'find . -path "*/target/*.jar" -o -path "*/target/*.ear"'
-                }
-                post {
-                    success {
-                        archiveArtifacts artifacts: '**/target/*.jar,**/target/*.ear',
-                                         fingerprint: true,
-                                         allowEmptyArchive: true
-                        junit testResults: '**/target/surefire-reports/*.xml',
-                              allowEmptyResults: true
-                    }
-                }
-            }
+            
 
             stage('Veracode Scan') {
                 steps {
