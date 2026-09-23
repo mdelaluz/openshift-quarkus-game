@@ -85,7 +85,7 @@ def call(Map config) {
                             usernameVariable: 'GIT_USER',
                             passwordVariable: 'GIT_TOKEN'
                         )]) {
-                            sh "git ls-remote https://${GIT_USER}:${GIT_TOKEN}@${GIT_REPO_URL.replace('https://', '')} HEAD"
+                            sh "git ls-remote https://\${GIT_USER}:\${GIT_TOKEN}@${GIT_REPO_URL.replace('https://', '')} HEAD"
                         }
                         echo "=== Repositorio Git accesible ==="
                     }
