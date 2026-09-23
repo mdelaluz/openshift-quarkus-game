@@ -164,7 +164,8 @@ def call(Map config) {
 
             stage('Build') {
                 steps {
-                    sh "mvn clean verify -B -P${APP_PROFILE} -DskipTests"
+                    //sh "mvn clean verify -B -P${APP_PROFILE} -DskipTests"
+                    sh "mvn clean verify -B -DskipTests"
                     sh 'echo "=== Artefactos generados ==="'
                     sh 'find . -path "*/target/*.jar" -o -path "*/target/*.ear"'
                 }
