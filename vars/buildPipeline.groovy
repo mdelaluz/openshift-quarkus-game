@@ -106,7 +106,8 @@ def call(Map config) {
                         ])
                         
                         def baseVersion = sh(
-                            script: "mvn help:evaluate -Dexpression=project.version -q -DforceStdout || echo '1.0.0'",
+                            //script: "mvn help:evaluate -Dexpression=project.version -q -DforceStdout || echo '1.0.0'",
+                            script: "mvn help:evaluate -Dexpression=project.version -q -DforceStdout 2>/dev/null | grep -v 'Picked up' | tail -n 1 || echo '1.0.0'",
                             returnStdout: true
                         ).trim()
                         
@@ -146,7 +147,8 @@ def call(Map config) {
                 steps {
                     script {
                         withSonarQubeEnv('SonarQubeServer') {
-                            sh "mvn sonar:sonar -Dsonar.projectName=${APP_NAME} -Dsonar.projectKey=${APP_NAME} -P${APP_PROFILE}"
+                            //sh "mvn sonar:sonar -Dsonar.projectName=${APP_NAME} -Dsonar.projectKey=${APP_NAME} -P${APP_PROFILE}"
+                            sh "mvn org.sonarsource.scanner.maven:sonar-maven-plugin:sonar -Dsonar.projectName=${APP_NAME} -Dsonar.projectKey=${APP_NAME}"
                         }
                         timeout(time: 10, unit: 'MINUTES') {
                             script {
@@ -288,7 +290,7 @@ def call(Map config) {
             }
 
         }
-
+b
         post {
             always {
                 deleteDir()
