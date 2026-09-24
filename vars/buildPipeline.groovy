@@ -66,7 +66,7 @@ def call(Map config) {
 
         stages {
 
-            stage('Initial pipeline configurations') {
+            stage('1. Initialize Pipeline') {
                 steps {
                     script {
                         echo "========================================="
@@ -92,7 +92,7 @@ def call(Map config) {
                 }
             }
 
-            stage('Git Checkout version') {
+            stage('2. Checkout Source & Configuration') {
                 steps {
                     script {
                         checkout([
@@ -145,7 +145,7 @@ def call(Map config) {
                 }
             }
 
-            stage('Build') {
+            stage('3. Build & Unit Test') {
                 steps {
                     //sh "mvn clean verify -B -P${APP_PROFILE} -DskipTests"
                     sh "mvn clean verify -B -DskipTests"
@@ -166,7 +166,7 @@ def call(Map config) {
 
             
 
-            stage('SonarQube Analysis') {
+            stage('4. Code Quality Scan') {
                 when {
                     expression { params.SKIP_SONARQUBE == false }
                 }
@@ -189,7 +189,7 @@ def call(Map config) {
                 }
             }           
 
-            stage('Veracode Scan') {
+            stage('5. Application Security Scan') {
                 steps {
                     script {
                         withCredentials([file(credentialsId: 'veracode-adapter', variable: 'VERACODE_ADAPTER')]) {
@@ -199,7 +199,7 @@ def call(Map config) {
                 }
             }
 
-            stage('Integration version') {
+            stage('6. Version & Build Image') {
                 steps {
                     script {
                         echo "Etiquetando versión de integración: v${env.APP_VERSION}"
@@ -212,7 +212,7 @@ def call(Map config) {
                 }
             }
 
-            stage('Docker Build & Push Registry') {
+            stage('7. Publish Candidate') {
                 steps {
                     script {
                         def assetBase = staticAssetsDir
@@ -261,9 +261,19 @@ def call(Map config) {
                         echo "Imagen publicada en Quay: ${env.IMAGE_REF}"
                     }
                 }
+                
             }
 
-            stage('Deploy OpenShift') {
+            stage('8. Generate SBOM & Scan Image') {
+            }
+
+            stage('9. Quality & Security Gate') {
+            }
+
+            stage('10. Sign & Attest') {
+            }
+            
+            stage('11. Deploy DEV') {
                 when {
                     allOf {
                         expression {
