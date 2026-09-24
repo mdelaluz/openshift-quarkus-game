@@ -118,13 +118,8 @@ def call(Map config) {
                         //env.APP_VERSION = "${baseVersion}-${env.BUILD_NUMBER}"
                         env.APP_VERSION = "${(baseVersion && baseVersion != 'null') ? baseVersion : '1.0.0'}-${env.BUILD_NUMBER}"
                         echo "Versión calculada para el artefacto: ${env.APP_VERSION}"
-                    }
-                }
-            }
 
-            stage('Git Checkout deploy config') {
-                steps {
-                    script {
+                        //Checkout opcional del repositorio de configuración de despliegue
                         if (gitDeployRepoUrl?.trim()) {
                             dir('deploy-config') {
                                 checkout([
