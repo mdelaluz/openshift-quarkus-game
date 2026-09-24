@@ -172,11 +172,12 @@ def call(Map config) {
                             sh "mvn org.sonarsource.scanner.maven:sonar-maven-plugin:sonar -Dsonar.projectName=${APP_NAME} -Dsonar.projectKey=${APP_NAME}"
                             //sh "if [ -f ./mvnw ]; then ./mvnw org.sonarsource.scanner.maven:sonar-maven-plugin:sonar -Dsonar.projectName=${APP_NAME} -Dsonar.projectKey=${APP_NAME}; else mvn org.sonarsource.scanner.maven:sonar-maven-plugin:sonar -Dsonar.projectName=${APP_NAME} -Dsonar.projectKey=${APP_NAME}; fi"
                         }
-                        timeout(time: 10, unit: 'MINUTES') {
+                        timeout(time: 4, unit: 'MINUTES') {
                             script {
-                                def qg = waitForQualityGate()
-                                if (qg.status != 'OK') {
-                                    error "Quality Gate falló con estado: ${qg.status}"
+                                def qualityGate = waitForQualityGate()
+                                echo "Estado de Quality Gate: ${qualityGate.status}"
+                                if (qualityGate.status != 'OK') {
+                                    error "Quality Gate falló con estado: ${qualityGate.status}"
                                 }
                             }
                         }
