@@ -265,12 +265,21 @@ def call(Map config) {
             }
 
             stage('8. Generate SBOM & Scan Image') {
+                steps {
+                echo 'SBOM y escaneo de imagen pendientes de implementación'
+              }
             }
 
             stage('9. Quality & Security Gate') {
+                steps {
+                echo 'Quality & Security Gate pendiente de implementación'
+              }
             }
 
             stage('10. Sign & Attest') {
+                steps {
+                echo 'Firma y attestation pendientes de implementación'
+              }
             }
             
             stage('11. Deploy DEV') {
