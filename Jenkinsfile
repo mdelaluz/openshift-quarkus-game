@@ -267,7 +267,7 @@ pipeline {
                     echo "Desplegando en OpenShift (${env.OPENSHIFT_API}) - Namespace: ${targetNamespace}"
 
                     withCredentials([string(credentialsId: 'usuario-generico-quarkus-game', variable: 'OC_USER')]) {
-                        sh 'oc login ' + env.OPENSHIFT_API + ' --token="$OC_USER" --insecure-skip-tls-verify=true'
+                        sh 'oc login ' + env.OPENSHIFT_API + ' --token="$OC_USER" --insecure-skip-tls-verify=false'
                         sh 'oc project ' + targetNamespace + ' || oc new-project ' + targetNamespace
                         sh 'oc set image deployment/' + env.APP_NAME + ' ' + env.APP_NAME + '="' + env.IMAGE_REF + '" -n ' + targetNamespace + ' || oc create deployment ' + env.APP_NAME + ' --image="' + env.IMAGE_REF + '" -n ' + targetNamespace
                         sh 'oc rollout status deployment/' + env.APP_NAME + ' -n ' + targetNamespace + ' --timeout=5m'
