@@ -199,6 +199,7 @@ pipeline {
                         sh 'git tag -a "v' + env.APP_VERSION + '" -m "Build de integración automática #' + env.BUILD_NUMBER + '" || true'
                     }
                 }
+                return
             }
         }
 
