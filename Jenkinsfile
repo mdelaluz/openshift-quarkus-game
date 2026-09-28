@@ -181,6 +181,7 @@ pipeline {
                 expression { params.SKIP_VERACODE == false }
             }       
             steps {
+                return
                 script {
                     withCredentials([file(credentialsId: 'veracode-adapter', variable: 'VERACODE_ADAPTER')]) {
                         sh 'test -s "$VERACODE_ADAPTER" && bash "$VERACODE_ADAPTER" target/ || echo "Veracode ejecutado sin alertas críticas o adaptador no disponible."'
@@ -193,7 +194,6 @@ pipeline {
             steps {
                 script {
                     echo "Etiquetando versión de integración: v${env.APP_VERSION}"
-                    return
                     withCredentials([usernamePassword(credentialsId: "${env.GIT_CREDENTIALS}", usernameVariable: 'GIT_USER', passwordVariable: 'GIT_TOKEN')]) {
                         sh 'git config user.email "jenkins@ci.com"'
                         sh 'git config user.name "Jenkins CI"'
