@@ -141,28 +141,7 @@ pipeline {
                 }
             }
 
-            stage('3. Build & Unit Test') {
-                steps {
-                    //sh "mvn clean verify -B -P${APP_PROFILE} -DskipTests"
-                    sh "mvn clean verify -B -DskipTests"
-                    //sh "if [ -f ./mvnw ]; then chmod +x ./mvnw && ./mvnw clean verify -B -DskipTests; else mvn clean verify -B -DskipTests; fi"
-                    sh 'echo "=== Artefactos generados ==="'
-                    sh 'find . -path "*/target/*.jar" -o -path "*/target/*.ear"'
-                }
-                post {
-                    success {
-                        archiveArtifacts artifacts: '**/target/*.jar,**/target/*.ear',
-                                         fingerprint: true,
-                                         allowEmptyArchive: true
-                        junit testResults: '**/target/surefire-reports/*.xml',
-                              allowEmptyResults: true
-                    }
-                }
-            }
-
-            
-
-            stage('4. Code Quality Scan') {
+stage('3. Code Quality Scan') {
                 when {
                     expression { params.SKIP_SONARQUBE == false }
                 }
@@ -184,7 +163,37 @@ pipeline {
                         }
                     }
                 }
-            }           
+            } 
+
+ stage('4. Build & Unit Test') {
+            steps {
+                script {
+                    if (params.NEXUS_MAVEN_URL?.trim()) {
+                        withCredentials([usernamePassword(credentialsId: 'nexus-readonly', usernameVariable: 'NEXUS_USERNAME', passwordVariable: 'NEXUS_PASSWORD')]) {
+                            withEnv(["NEXUS_MAVEN_URL=${params.NEXUS_MAVEN_URL.trim()}"]) {
+                                sh 'bash ci/build.sh'
+                                if (params.ENABLE_SONAR) {
+                                    withSonarQubeEnv('SonarQubeServer') {
+                                        sh './mvnw -B -ntp -s ci/settings-nexus.xml sonar:sonar'
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        sh 'bash ci/build.sh'
+                        if (params.ENABLE_SONAR) {
+                            withSonarQubeEnv('SonarQubeServer') {
+                                sh './mvnw -B -ntp sonar:sonar'
+                            }
+                        }
+                    }
+                }
+            }
+            post {
+                always { junit allowEmptyResults: true, testResults: 'target/surefire-reports/TEST-*.xml' }
+            }
+        }
+          
 
             stage('5. Application Security Scan') {
                 steps {
