@@ -133,73 +133,16 @@ pipeline {
             steps {
                 script {
                     withSonarQubeEnv('SonarServer1') {
-                        // 1. Compilar y ejecutar análisis
+                        // 1. Compila los .class y ejecuta el análisis
                         sh "mvn compile org.sonarsource.scanner.maven:sonar-maven-plugin:sonar -Dsonar.projectName=${env.APP_NAME} -Dsonar.projectKey=${env.APP_NAME}"
+                    }
 
-                        echo "=== Consultando Quality Gate mediante API REST (con Autenticación) ==="
-
-                        // 2. Extraer datos del reporte local generado por Maven
-                        def reportTask = readFile('target/sonar/report-task.txt')
-                        def serverUrl = (reportTask =~ /serverUrl=(.*)/)[0][1].trim()
-                        def ceTaskId  = (reportTask =~ /ceTaskId=(.*)/)[0][1].trim()
-
-                        echo "ID de tarea en SonarQube: ${ceTaskId}"
-
-                        // 3. Preparar credenciales para curl (-u TOKEN:)
-                        def authArg = env.SONAR_AUTH_TOKEN ? "-u \"${env.SONAR_AUTH_TOKEN}:\"" : ""
-
-                        // 4. Bucle de espera (Polling) hasta que SonarQube procese la tarea
-                        def taskStatus = "PENDING"
-                        def analysisId = ""
-                        def attempts = 0
-                        def maxAttempts = 20
-                        def slurper = new groovy.json.JsonSlurperClassic()
-
-                        while ((taskStatus == "PENDING" || taskStatus == "IN_PROGRESS") && attempts < maxAttempts) {
-                            sleep 5
-                            attempts++
-
-                            def taskRaw = sh(
-                                script: "curl -s -k ${authArg} \"${serverUrl}/api/ce/task?id=${ceTaskId}\"",
-                                returnStdout: true
-                            ).trim()
-
-                            def taskJson = slurper.parseText(taskRaw)
-
-                            if (taskJson.errors) {
-                                error "Error de autenticación/permisos en SonarQube API: ${taskJson.errors[0].msg}"
-                            }
-
-                            taskStatus = taskJson.task.status
-                            if (taskStatus == "SUCCESS") {
-                                analysisId = taskJson.task.analysisId
-                            }
-                            echo "Intento ${attempts}/${maxAttempts}: Estado de la tarea -> ${taskStatus}"
-                        }
-
-                        if (taskStatus != "SUCCESS") {
-                            error "El análisis en SonarQube no finalizó correctamente. Estado: ${taskStatus}"
-                        }
-
-                        // 5. Validar el estado del Quality Gate (OK / ERROR)
-                        def qgRaw = sh(
-                            script: "curl -s -k ${authArg} \"${serverUrl}/api/qualitygates/project_status?analysisId=${analysisId}\"",
-                            returnStdout: true
-                        ).trim()
-
-                        def qgJson = slurper.parseText(qgRaw)
-
-                        if (qgJson.errors) {
-                            error "Error al obtener Quality Gate: ${qgJson.errors[0].msg}"
-                        }
-
-                        def qgStatus = qgJson.projectStatus.status
-                        echo "Estado final del Quality Gate: ${qgStatus}"
-
-                        if (qgStatus != "OK") {
-                            error "Quality Gate de SonarQube RECHAZADO con estado: ${qgStatus}"
-                        } else {
-                            echo "=== Quality Gate APROBADO (OK) ==="
+                    // 2. Espera nativa del Webhook (máximo 10 minutos)
+                    timeout(time: 10, unit: 'MINUTES') {
+                        def qg = waitForQualityGate()
+                        echo "Estado del Quality Gate recibido por Webhook: ${qg.status}"
+                        if (qg.status != 'OK') {
+                            error "Quality Gate RECHAZADO con estado: ${qg.status}"
                         }
                     }
                 }
