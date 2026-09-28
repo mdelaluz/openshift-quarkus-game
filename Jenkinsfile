@@ -1,3 +1,4 @@
+    //def jdkTool             = 'Oracle JDK jdk1.8.0_144'
     def jdkTool             = 'Java 17'
     def appName             = 'quarkus-game'
     def gitRepoUrl          = 'https://github.com/psehgaft/openshift-quarkus-game.git'
