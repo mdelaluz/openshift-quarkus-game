@@ -211,7 +211,7 @@ pipeline {
                     withCredentials([string(credentialsId: 'usuario-generico-quarkus-game', variable: 'OC_TOKEN')]) {
                         sh '''
                             set +x
-                            oc login ''' + env.OPENSHIFT_API + ''' --token="$OC_TOKEN" --insecure-skip-tls-verify=true
+                            oc login ''' + env.OPENSHIFT_API + ''' --token="$OC_TOKEN" --insecure-skip-tls-verify=false
                             
                             # 1. Crear el BuildConfig tipo Docker si no existe
                             oc new-build --name=''' + env.APP_NAME + '''-builder \
