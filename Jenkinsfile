@@ -181,8 +181,8 @@ pipeline {
                 expression { params.SKIP_VERACODE == false }
             }       
             steps {
-                return
                 script {
+                    return
                     withCredentials([file(credentialsId: 'veracode-adapter', variable: 'VERACODE_ADAPTER')]) {
                         sh 'test -s "$VERACODE_ADAPTER" && bash "$VERACODE_ADAPTER" target/ || echo "Veracode ejecutado sin alertas críticas o adaptador no disponible."'
                     }
