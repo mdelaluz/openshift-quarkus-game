@@ -1,19 +1,19 @@
 def call(Map config = [:]) {
 
     def jdkTool             = config.jdkTool             ?: 'Oracle JDK jdk1.8.0_144'
-    def appName             = config.appName             ?: 'd02-quarkus-game-authentication-api'
-    def gitRepoUrl          = config.gitRepoUrl          ?: 'https://gitlab.premium.my-celinstitucional.com/kiosco-my-cel/d02quarkus-gameauthenticationapi.git'
+    def appName             = 'quarkus-game'
+    def gitRepoUrl          = config.gitRepoUrl          ?: 'https://github.com/psehgaft/openshift-quarkus-game.git'
     def gitDeployRepoUrl    = config.gitDeployRepoUrl    ?: ''
     def gitCredentials      = config.gitCredentials      ?: 'gitlab-deploy-token-38'
-    def mavenTool           = config.mavenTool           ?: 'apache-maven-3.3.9'
+    def mavenTool           = config.mavenTool           ?: 'apache-maven-3.9.6'
     def staticAssetsEnabled = config.staticAssetsEnabled == null ? true : config.staticAssetsEnabled 
     def staticAssetsDir     = config.staticAssetsDir     ?: 'container-assets'
     def staticAssetsProfile = config.staticAssetsProfile ?: 'core'
     def dockerfileEnabled   = config.dockerfileEnabled   == null ? true : config.dockerfileEnabled 
     def dockerfileOutputPath = config.dockerfileOutputPath ?: 'Dockerfile'
-    def dockerBaseImage     = config.dockerBaseImage     ?: 'my-cel-quay-my-cel-quay.apps.prod.my-celcloud.dt/my-cel/websphere-liberty-ubi8:kernel-ubi-min'
-    def quayRegistry        = config.quayRegistry        ?: 'my-cel-quay-my-cel-quay.apps.acmbmnp.my-celcloud.dt/repository/vibcaja/d02-vibcaja-quarkus-game-authentication-api'
-    def openshiftApi        = config.openshiftApi        ?: 'https://api.qdlbmnp.my-celcloud.dt:6443'
+    def dockerBaseImage     = config.dockerBaseImage     ?: 'registry.access.redhat.com/ubi9/openjdk-17-runtime:latest'
+    def quayRegistry        = config.quayRegistry        ?: 'quay-9tfrr.apps.cluster-9tfrr.9tfrr.sandbox1834.opentlc.com/quayadmin/quarkus-game'
+    def openshiftApi        = config.openshiftApi        ?: 'https://api.cluster-9tfrr.9tfrr.sandbox1834.opentlc.com:6443'
 
     pipeline {
         agent any
@@ -26,13 +26,13 @@ def call(Map config = [:]) {
         parameters {
             choice(
                 name        : 'APLICATIVO',
-                choices     : ['quarkus-game', 'KIOSCO'],
+                choices     : ['quarkus-game', 'CONSOLA'],
                 description : 'Selecciona el aplicativo destino del despliegue'
             )
             choice(
                 name        : 'AMBIENTE',
                 choices     : ['DEV', 'QA', 'PREPROD'],
-                description : 'quarkus-game: DEV, QA | KIOSCO: PREPROD'
+                description : 'quarkus-game: DEV, QA | CONSOLA: PREPROD'
             )
             booleanParam(
                 name         : 'SKIP_SONARQUBE',
@@ -47,7 +47,7 @@ def call(Map config = [:]) {
             string(
                 name         : 'RAMA_OVERRIDE',
                 defaultValue : '',
-                description  : 'Rama a desplegar (opcional). Si se deja vacío: develop'
+                description  : 'Rama a desplegar (opcional). Si se deja vacío: main'
             )
         }
 
@@ -55,8 +55,8 @@ def call(Map config = [:]) {
             APP_NAME        = "${appName}"
             GIT_REPO_URL    = "${gitRepoUrl}"
             GIT_CREDENTIALS = "${gitCredentials}"
-            RAMA            = "${params.RAMA_OVERRIDE?.trim() ?: 'develop'}"
-            APP_PROFILE     = "${params.AMBIENTE?.toLowerCase() ?: 'develop'}"
+            RAMA            = "${params.RAMA_OVERRIDE?.trim() ?: 'main'}"
+            APP_PROFILE     = "${params.AMBIENTE?.toLowerCase() ?: 'dev'}"
             DEPLOY_ENV      = "${params.AMBIENTE ?: 'DEV'}"
             QUAY_REGISTRY   = "${quayRegistry}"
             OPENSHIFT_API   = "${openshiftApi}"
@@ -147,8 +147,7 @@ def call(Map config = [:]) {
                 steps {
                     script {
                         withSonarQubeEnv('SonarServer1') {
-                            // 'compile' genera los bytecode (.class) necesarios para que SonarQube analice el código Java
-                            sh "mvn compile org.sonarsource.scanner.maven:sonar-maven-plugin:3.9.1.2184:sonar -Dsonar.projectName=${APP_NAME} -Dsonar.projectKey=${APP_NAME}"
+                            sh "mvn compile org.sonarsource.scanner.maven:sonar-maven-plugin:sonar -Dsonar.projectName=${APP_NAME} -Dsonar.projectKey=${APP_NAME}"
                         }
                         timeout(time: 15, unit: 'MINUTES') {
                             script {
@@ -296,7 +295,7 @@ def call(Map config = [:]) {
                         }
                         expression {
                             (params.APLICATIVO == 'quarkus-game' && params.AMBIENTE in ['DEV', 'QA']) ||
-                            (params.APLICATIVO == 'KIOSCO'  && params.AMBIENTE == 'PREPROD')
+                            (params.APLICATIVO == 'CONSOLA'  && params.AMBIENTE == 'PREPROD')
                         }
                     }
                 }
@@ -306,7 +305,7 @@ def call(Map config = [:]) {
                         echo "Desplegando en OpenShift (${OPENSHIFT_API}) - Namespace: ${targetNamespace}"
 
                         withCredentials([string(credentialsId: 'usuario-generico-quarkus-game', variable: 'OC_USER')]) {
-                            sh 'oc login ' + OPENSHIFT_API + ' --user="$OC_USER" --insecure-skip-tls-verify=true'
+                            sh 'oc login ' + OPENSHIFT_API + ' --token="$OC_USER" --insecure-skip-tls-verify=true'
                             sh 'oc project ' + targetNamespace + ' || oc new-project ' + targetNamespace
                             sh 'oc set image deployment/' + APP_NAME + ' ' + APP_NAME + '="' + env.IMAGE_REF + '" -n ' + targetNamespace + ' || oc create deployment ' + APP_NAME + ' --image="' + env.IMAGE_REF + '" -n ' + targetNamespace
                             sh 'oc rollout status deployment/' + APP_NAME + ' -n ' + targetNamespace + ' --timeout=5m'
@@ -339,4 +338,3 @@ def call(Map config = [:]) {
         }
     }
 }
-
