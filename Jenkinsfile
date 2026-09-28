@@ -136,7 +136,8 @@ pipeline {
                         // 1. Compila los .class y ejecuta el análisis
                         sh "mvn compile org.sonarsource.scanner.maven:sonar-maven-plugin:sonar -Dsonar.projectName=${env.APP_NAME} -Dsonar.projectKey=${env.APP_NAME}"
                     }
-
+                    return 
+                    //se comenta el return para telcel
                     // 2. Espera nativa del Webhook (máximo 10 minutos)
                     timeout(time: 10, unit: 'MINUTES') {
                         def qg = waitForQualityGate()
