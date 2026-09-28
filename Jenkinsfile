@@ -109,6 +109,7 @@ pipeline {
                         def baseVersion = sh(
                             //script: "mvn help:evaluate -Dexpression=project.version -q -DforceStdout || echo '1.0.0'",
                             script: "mvn help:evaluate -Dexpression=project.version -q -DforceStdout 2>/dev/null | grep -v 'Picked up' | tail -n 1 || echo '1.0.0'",
+                            script: "JAVA_TOOL_OPTIONS='' mvn help:evaluate -Dexpression=project.version -q -DforceStdout 2>/dev/null | tr -d '\\r\\n' || echo '1.0.0'",
                             //script: "JAVA_TOOL_OPTIONS='' mvn help:evaluate -Dexpression=project.version -q -DforceStdout | tr -d '\\r\\n' || echo '1.0.0'",
                             //script: "JAVA_TOOL_OPTIONS='' bash -c 'if [ -f ./mvnw ]; then chmod +x ./mvnw && ./mvnw help:evaluate -Dexpression=project.version -q -DforceStdout; else mvn help:evaluate -Dexpression=project.version -q -DforceStdout; fi' | tr -d '\\r\\n' || echo '1.0.0'",
                             //script: "mvn help:evaluate -Dexpression=project.version -q -DforceStdout 2>/dev/null | grep -v 'Picked up' | tr -d '\\r\\n' || echo '1.0.0'",
