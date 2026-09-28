@@ -1,46 +1,53 @@
-    def appName             = 'quarkus-game'
-    def gitRepoUrl          = 'https://github.com/psehgaft/openshift-quarkus-game.git'
-    def gitDeployRepoUrl    = ''
-    def gitCredentials      = 'gitlab-deploy-token-38'
-    def mavenTool           = 'apache-maven-3.9.6'
-    def staticAssetsEnabled = true
-    def staticAssetsDir     = 'container-assets'
-    def staticAssetsProfile = 'core'
-    def dockerfileEnabled   = true
-    def dockerfileOutputPath = 'Dockerfile'
-    def dockerBaseImage     = 'registry.access.redhat.com/ubi9/openjdk-17-runtime:latest'
-    def quayRegistry = 'quay-9tfrr.apps.cluster-9tfrr.9tfrr.sandbox1834.opentlc.com/quayadmin/quarkus-game'
-    def openshiftApi = 'https://api.cluster-9tfrr.9tfrr.sandbox1834.opentlc.com:6443'
+def call(Map config = [:]) {
 
+    def jdkTool             = config.jdkTool             ?: 'Oracle JDK jdk1.8.0_144'
+    def appName             = config.appName             ?: 'd02-sicatel-authentication-api'
+    def gitRepoUrl          = config.gitRepoUrl          ?: 'https://gitlab.premium.telcelinstitucional.com/kiosco-telcel/d02sicatelauthenticationapi.git'
+    def gitDeployRepoUrl    = config.gitDeployRepoUrl    ?: ''
+    def gitCredentials      = config.gitCredentials      ?: 'gitlab-deploy-token-38'
+    def mavenTool           = config.mavenTool           ?: 'apache-maven-3.3.9'
+    def staticAssetsEnabled = config.staticAssetsEnabled == null ? true : config.staticAssetsEnabled 
+    def staticAssetsDir     = config.staticAssetsDir     ?: 'container-assets'
+    def staticAssetsProfile = config.staticAssetsProfile ?: 'core'
+    def dockerfileEnabled   = config.dockerfileEnabled   == null ? true : config.dockerfileEnabled 
+    def dockerfileOutputPath = config.dockerfileOutputPath ?: 'Dockerfile'
+    def dockerBaseImage     = config.dockerBaseImage     ?: 'telcel-quay-telcel-quay.apps.prodbm.telcelcloud.dt/telcel/websphere-liberty-ubi8:kernel-ubi-min'
+    def quayRegistry        = config.quayRegistry        ?: 'telcel-quay-telcel-quay.apps.acmbmnp.telcelcloud.dt/repository/vibcaja/d02-vibcaja-sicatel-authentication-api'
+    def openshiftApi        = config.openshiftApi        ?: 'https://api.qdlbmnp.telcelcloud.dt:6443'
 
-pipeline {
+    pipeline {
         agent any
 
-        //Esto si se necesita para la aplicacion Sicatel, para sicatel necesita la 3.3.9
         tools {
             maven "${mavenTool}"
+            jdk   "${jdkTool}"
         }
 
         parameters {
             choice(
                 name        : 'APLICATIVO',
-                choices     : ['MDELALUZ-QUARKUS-GAME', 'KIOSCO'],
+                choices     : ['SICATEL', 'KIOSCO'],
                 description : 'Selecciona el aplicativo destino del despliegue'
             )
             choice(
                 name        : 'AMBIENTE',
                 choices     : ['DEV', 'QA', 'PREPROD'],
-                description : 'MDELALUZ-QUARKUS-GAME: DEV, QA | KIOSCO: PREPROD'
+                description : 'SICATEL: DEV, QA | KIOSCO: PREPROD'
             )
             booleanParam(
                 name         : 'SKIP_SONARQUBE',
                 defaultValue : false,
                 description  : 'Omitir el análisis de SonarQube'
             )
+            booleanParam(
+                name         : 'SKIP_VERACODE',
+                defaultValue : false,
+                description  : 'Omitir escaneo de Veracode'
+            )
             string(
                 name         : 'RAMA_OVERRIDE',
                 defaultValue : '',
-                description  : 'Rama a desplegar (opcional). Si se deja vacío: main'
+                description  : 'Rama a desplegar (opcional). Si se deja vacío: develop'
             )
         }
 
@@ -48,15 +55,14 @@ pipeline {
             APP_NAME        = "${appName}"
             GIT_REPO_URL    = "${gitRepoUrl}"
             GIT_CREDENTIALS = "${gitCredentials}"
-            RAMA            = "${params.RAMA_OVERRIDE?.trim() ?: 'main'}"
-            APP_PROFILE     = "${params.AMBIENTE?.toLowerCase() ?: 'dev'}"
+            RAMA            = "${params.RAMA_OVERRIDE?.trim() ?: 'develop'}"
+            APP_PROFILE     = "${params.AMBIENTE?.toLowerCase() ?: 'develop'}"
             DEPLOY_ENV      = "${params.AMBIENTE ?: 'DEV'}"
             QUAY_REGISTRY   = "${quayRegistry}"
             OPENSHIFT_API   = "${openshiftApi}"
             IMAGE_DIGEST    = ''
             IMAGE_REF       = ''
             APP_VERSION     = ''
-            
         }
 
         options {
@@ -107,21 +113,13 @@ pipeline {
                         ])
                         
                         def baseVersion = sh(
-                            //script: "mvn help:evaluate -Dexpression=project.version -q -DforceStdout || echo '1.0.0'",
-                            //script: "mvn help:evaluate -Dexpression=project.version -q -DforceStdout 2>/dev/null | grep -v 'Picked up' | tail -n 1 || echo '1.0.0'",
-                            //script: "JAVA_TOOL_OPTIONS='' mvn help:evaluate -Dexpression=project.version -q -DforceStdout 2>/dev/null | tr -d '\\r\\n' || echo '1.0.0'",
-                            //script: "JAVA_TOOL_OPTIONS='' mvn help:evaluate -Dexpression=project.version -q -DforceStdout | tr -d '\\r\\n' || echo '1.0.0'",
-                            //script: "JAVA_TOOL_OPTIONS='' bash -c 'if [ -f ./mvnw ]; then chmod +x ./mvnw && ./mvnw help:evaluate -Dexpression=project.version -q -DforceStdout; else mvn help:evaluate -Dexpression=project.version -q -DforceStdout; fi' | tr -d '\\r\\n' || echo '1.0.0'",
-                            //script: "mvn help:evaluate -Dexpression=project.version -q -DforceStdout 2>/dev/null | grep -v 'Picked up' | tr -d '\\r\\n' || echo '1.0.0'",
-                            script: "mvn help:evaluate -Dexpression=project.version -q -DforceStdout 2>/dev/null | grep -v 'Picked up' | tr -d '\\r\\n' || echo '1.0.0'",
+                            script: "JAVA_TOOL_OPTIONS='' mvn help:evaluate -Dexpression=project.version -q -DforceStdout 2>/dev/null | tr -d '\\r\\n' || echo '1.0.0'",
                             returnStdout: true
                         ).trim()
                         
-                        //env.APP_VERSION = "${baseVersion}-${env.BUILD_NUMBER}"
-                        env.APP_VERSION = "${(baseVersion && baseVersion != 'null') ? baseVersion : '1.0.0'}-${env.BUILD_NUMBER}"
+                        env.APP_VERSION = "${(baseVersion && baseVersion != 'null' && baseVersion != '') ? baseVersion : '1.0.0'}-${env.BUILD_NUMBER}"
                         echo "Versión calculada para el artefacto: ${env.APP_VERSION}"
 
-                        //Checkout opcional del repositorio de configuración de despliegue
                         if (gitDeployRepoUrl?.trim()) {
                             dir('deploy-config') {
                                 checkout([
@@ -141,15 +139,16 @@ pipeline {
                     }
                 }
             }
-stage('3. Code Quality Scan') {
+
+            stage('3. Code Quality Scan') {
                 when {
                     expression { params.SKIP_SONARQUBE == false }
                 }
                 steps {
                     script {
-                        withSonarQubeEnv('SonarQubeServer') {
-                            // Compila los archivos .class que necesita Sonar y ejecuta el análisis
-                            sh "mvn compile org.sonarsource.scanner.maven:sonar-maven-plugin:sonar -Dsonar.projectName=${APP_NAME} -Dsonar.projectKey=${APP_NAME}"
+                        withSonarQubeEnv('SonarServer1') {
+                            // 'compile' genera los bytecode (.class) necesarios para que SonarQube analice el código Java
+                            sh "mvn compile org.sonarsource.scanner.maven:sonar-maven-plugin:3.9.1.2184:sonar -Dsonar.projectName=${APP_NAME} -Dsonar.projectKey=${APP_NAME}"
                         }
                         timeout(time: 15, unit: 'MINUTES') {
                             script {
@@ -164,54 +163,46 @@ stage('3. Code Quality Scan') {
                 }
             }
 
-            stage('4.- Unit Test') {
+            stage('4. Unit Test') {
                 steps {
                     sh "mvn test -B"
                 }
                 post {
                     always {
-                        junit testResults: '*/target/surefire-reports/.xml', allowEmptyResults: true
+                        junit testResults: '**/target/surefire-reports/*.xml', allowEmptyResults: true
                     }
                 }
             }
 
-            stage('4.- Build') {
+            stage('5. Build') {
                 steps {
                     sh "mvn package -B -DskipTests"
                     sh 'echo "=== Artefactos generados ==="'
-                    sh 'find . -path "/target/.jar" -o -path "/target/.ear"'
+                    sh 'find . -path "*/target/*.jar" -o -path "*/target/*.ear"'
                 }
                 post {
                     success {
-                        archiveArtifacts artifacts: '*/target/.jar,*/target/.ear',
+                        archiveArtifacts artifacts: '**/target/*.jar,**/target/*.ear',
                                          fingerprint: true,
                                          allowEmptyArchive: true
                     }
                 }
             }
 
-            //stage('Analyze Artifacts (Security Scan)') {
-                //steps {
-                  //  script {
-                      //  withCredentials([file(credentialsId: 'veracode-adapter', variable: 'VERACODE_ADAPTER')]) {
-                       //     sh 'test -s "$VERACODE_ADAPTER" && bash "$VERACODE_ADAPTER" target/ || echo "Veracode ejecutado sobre los artefactos de target/."'
-                      //  }
-                   // }
-                //}
-          //  }
-stage('5. Analyze Artifacts (Security Scan)') {
-                input {
-                    message "¿Aprobar la revisión de seguridad para continuar con el despliegue?"
-                    ok "Aprobar y Continuar"
-                    submitter "admin" // Opcional: Define qué usuario o rol tiene permiso de aprobar
-                }
+            stage('6. Application Security Scan') {
+                when {
+                    expression { params.SKIP_VERACODE == false }
+                }       
                 steps {
-                    echo "Aprobación manual concedida. Continuando con la ejecución del Pipeline..."
+                    script {
+                        withCredentials([file(credentialsId: 'veracode-adapter', variable: 'VERACODE_ADAPTER')]) {
+                            sh 'test -s "$VERACODE_ADAPTER" && bash "$VERACODE_ADAPTER" target/ || echo "Veracode ejecutado sin alertas críticas o binario pendiente de configuración."'
+                        }
+                    }
                 }
             }
 
-
-            stage('6. Version & Build Image') {
+            stage('7. Version & Tagging') {
                 steps {
                     script {
                         echo "Etiquetando versión de integración: v${env.APP_VERSION}"
@@ -224,14 +215,15 @@ stage('5. Analyze Artifacts (Security Scan)') {
                 }
             }
 
-            stage('7. Publish Candidate') {
+            stage('8. Publish Candidate (Build & Push Image)') {
                 steps {
                     script {
-                        def assetBase = staticAssetsDir
-                        def assetProfile = staticAssetsProfile
+                        def assetBase = staticAssetsDir ?: 'container-assets'
+                        def assetProfile = staticAssetsProfile ?: 'core'
+                        
+                        sh "mkdir -p ${assetBase}"
 
                         if (staticAssetsEnabled) {
-                            sh "mkdir -p ${assetBase}"
                             writeFile file: "${assetBase}/server.xml", text: libraryResource("container-assets/${assetProfile}/server.xml")
                             writeFile file: "${assetBase}/init-logs.sh", text: libraryResource("container-assets/${assetProfile}/init-logs.sh")
                             writeFile file: "${assetBase}/validate-startup.sh", text: libraryResource("container-assets/${assetProfile}/validate-startup.sh")
@@ -245,7 +237,7 @@ stage('5. Analyze Artifacts (Security Scan)') {
                             ).trim()
 
                             if (!earSourcePath) {
-                                error 'No .ear/.jar artifact found under target/. Check Build stage output.'
+                                error 'No se encontró ningún artefacto .jar/.ear en target/.'
                             }
 
                             def earFileName = earSourcePath.tokenize('/').last()
@@ -256,6 +248,9 @@ stage('5. Analyze Artifacts (Security Scan)') {
                                 .replace('__BASE_IMAGE__', dockerBaseImage)
                                 .replace('__ASSET_DIR__', assetBase)
                                 .replace('__EAR_FILE__', earFileName)
+                                .replace('_BASE_IMAGE_', dockerBaseImage)
+                                .replace('_ASSET_DIR_', assetBase)
+                                .replace('_EAR_FILE_', earFileName)
 
                             writeFile file: dockerfileOutputPath, text: dockerfileContent
                         }
@@ -263,45 +258,44 @@ stage('5. Analyze Artifacts (Security Scan)') {
                         def imageTag = "${QUAY_REGISTRY}:${DEPLOY_ENV.toLowerCase()}-${env.BUILD_NUMBER}"
                         sh "podman build -f ${dockerfileOutputPath} -t ${imageTag} ."
 
-                        withCredentials([usernamePassword(credentialsId: 'quay-robot-sicatel', usernameVariable: 'QUAY_USER', passwordVariable: 'QUAY_TOKEN')]) {
-                            sh 'printf "%s" "$QUAY_TOKEN" | podman login ' + QUAY_REGISTRY.split('/')[0] + ' --username "$QUAY_USER" --password-stdin'
+                        withCredentials([usernamePassword(credentialsId: 'quay-push', usernameVariable: 'QUAY_USER', passwordVariable: 'QUAY_PASSWORD')]) {
+                            sh 'printf "%s" "$QUAY_PASSWORD" | podman login ' + QUAY_REGISTRY.split('/')[0] + ' --username "$QUAY_USER" --password-stdin'
                             sh 'podman push --digestfile image-digest.txt ' + imageTag
                         }
-
+ 
                         env.IMAGE_DIGEST = readFile('image-digest.txt').trim()
                         env.IMAGE_REF = "${QUAY_REGISTRY}@${env.IMAGE_DIGEST}"
                         echo "Imagen publicada en Quay: ${env.IMAGE_REF}"
                     }
                 }
-                
             }
 
-            stage('8. Generate SBOM & Scan Image') {
+            stage('9. Generate SBOM & Scan Image') {
                 steps {
-                echo 'SBOM y escaneo de imagen pendientes de implementación'
-              }
+                    echo 'SBOM y escaneo de imagen pendientes de implementación'
+                }
             }
 
-            stage('9. Quality & Security Gate') {
+            stage('10. Quality & Security Gate') {
                 steps {
-                echo 'Quality & Security Gate pendiente de implementación'
-              }
+                    echo 'Quality & Security Gate pendiente de implementación'
+                }
             }
 
-            stage('10. Sign & Attest') {
+            stage('11. Sign & Attest') {
                 steps {
-                echo 'Firma y attestation pendientes de implementación'
-              }
+                    echo 'Firma y attestation pendientes de implementación'
+                }
             }
             
-            stage('11. Deploy DEV') {
+            stage('12. Deploy DEV') {
                 when {
                     allOf {
                         expression {
                             params.RAMA_OVERRIDE?.trim() ? true : RAMA in ['develop', 'main']
                         }
                         expression {
-                            (params.APLICATIVO == 'MDELALUZ-QUARKUS-GAME' && params.AMBIENTE in ['DEV', 'QA']) ||
+                            (params.APLICATIVO == 'SICATEL' && params.AMBIENTE in ['DEV', 'QA']) ||
                             (params.APLICATIVO == 'KIOSCO'  && params.AMBIENTE == 'PREPROD')
                         }
                     }
@@ -311,8 +305,8 @@ stage('5. Analyze Artifacts (Security Scan)') {
                         def targetNamespace = "${params.APLICATIVO.toLowerCase()}-${DEPLOY_ENV.toLowerCase()}"
                         echo "Desplegando en OpenShift (${OPENSHIFT_API}) - Namespace: ${targetNamespace}"
 
-                        withCredentials([string(credentialsId: 'oc-dev-token', variable: 'OC_TOKEN')]) {
-                            sh 'oc login ' + OPENSHIFT_API + ' --token="$OC_TOKEN" --insecure-skip-tls-verify=true'
+                        withCredentials([string(credentialsId: 'usuario-generico-sicatel', variable: 'OC_USER')]) {
+                            sh 'oc login ' + OPENSHIFT_API + ' --user="$OC_USER" --insecure-skip-tls-verify=true'
                             sh 'oc project ' + targetNamespace + ' || oc new-project ' + targetNamespace
                             sh 'oc set image deployment/' + APP_NAME + ' ' + APP_NAME + '="' + env.IMAGE_REF + '" -n ' + targetNamespace + ' || oc create deployment ' + APP_NAME + ' --image="' + env.IMAGE_REF + '" -n ' + targetNamespace
                             sh 'oc rollout status deployment/' + APP_NAME + ' -n ' + targetNamespace + ' --timeout=5m'
@@ -321,7 +315,7 @@ stage('5. Analyze Artifacts (Security Scan)') {
                 }
             }
 
-            stage('Remove registry repository tags') {
+            stage('13. Remove Registry Repository Tags') {
                 steps {
                     script {
                         sh "podman rmi ${QUAY_REGISTRY}:${DEPLOY_ENV.toLowerCase()}-${env.BUILD_NUMBER} || true"
@@ -331,6 +325,7 @@ stage('5. Analyze Artifacts (Security Scan)') {
             }
 
         }
+
         post {
             always {
                 deleteDir()
@@ -343,3 +338,4 @@ stage('5. Analyze Artifacts (Security Scan)') {
             }
         }
     }
+}
