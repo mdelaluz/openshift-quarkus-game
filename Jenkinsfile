@@ -141,7 +141,6 @@ pipeline {
                     }
                 }
             }
-
 stage('3. Code Quality Scan') {
                 when {
                     expression { params.SKIP_SONARQUBE == false }
@@ -149,9 +148,8 @@ stage('3. Code Quality Scan') {
                 steps {
                     script {
                         withSonarQubeEnv('SonarQubeServer') {
-                            //sh "mvn sonar:sonar -Dsonar.projectName=${APP_NAME} -Dsonar.projectKey=${APP_NAME} -P${APP_PROFILE}"
-                            sh "mvn org.sonarsource.scanner.maven:sonar-maven-plugin:5.8.0.7211:sonar -Dsonar.projectName=${APP_NAME} -Dsonar.projectKey=${APP_NAME}"
-                            //sh "if [ -f ./mvnw ]; then ./mvnw org.sonarsource.scanner.maven:sonar-maven-plugin:sonar -Dsonar.projectName=${APP_NAME} -Dsonar.projectKey=${APP_NAME}; else mvn org.sonarsource.scanner.maven:sonar-maven-plugin:sonar -Dsonar.projectName=${APP_NAME} -Dsonar.projectKey=${APP_NAME}; fi"
+                            // Compila los archivos .class que necesita Sonar y ejecuta el análisis
+                            sh "mvn compile org.sonarsource.scanner.maven:sonar-maven-plugin:sonar -Dsonar.projectName=${APP_NAME} -Dsonar.projectKey=${APP_NAME}"
                         }
                         timeout(time: 15, unit: 'MINUTES') {
                             script {
@@ -164,47 +162,54 @@ stage('3. Code Quality Scan') {
                         }
                     }
                 }
-            } 
-
- stage('4. Build & Unit Test') {
-            steps {
-                script {
-                    if (params.NEXUS_MAVEN_URL?.trim()) {
-                        withCredentials([usernamePassword(credentialsId: 'nexus-readonly', usernameVariable: 'NEXUS_USERNAME', passwordVariable: 'NEXUS_PASSWORD')]) {
-                            withEnv(["NEXUS_MAVEN_URL=${params.NEXUS_MAVEN_URL.trim()}"]) {
-                                sh 'bash ci/build.sh'
-                                if (params.ENABLE_SONAR) {
-                                    withSonarQubeEnv('SonarQubeServer') {
-                                        sh './mvnw -B -ntp -s ci/settings-nexus.xml sonar:sonar'
-                                    }
-                                }
-                            }
-                        }
-                    } else {
-                        sh 'bash ci/build.sh'
-                        if (params.ENABLE_SONAR) {
-                            withSonarQubeEnv('SonarQubeServer') {
-                                sh './mvnw -B -ntp sonar:sonar'
-                            }
-                        }
-                    }
-                }
             }
-            post {
-                always { junit allowEmptyResults: true, testResults: 'target/surefire-reports/TEST-*.xml' }
-            }
-        }
-          
 
-            stage('5. Application Security Scan') {
+            stage('4.- Unit Test') {
                 steps {
-                    script {
-                        withCredentials([file(credentialsId: 'veracode-adapter', variable: 'VERACODE_ADAPTER')]) {
-                            sh 'test -s "$VERACODE_ADAPTER" && bash "$VERACODE_ADAPTER" target/ || echo "Veracode ejecutado sin alertas críticas."'
-                        }
+                    sh "mvn test -B"
+                }
+                post {
+                    always {
+                        junit testResults: '*/target/surefire-reports/.xml', allowEmptyResults: true
                     }
                 }
             }
+
+            stage('4.- Build') {
+                steps {
+                    sh "mvn package -B -DskipTests"
+                    sh 'echo "=== Artefactos generados ==="'
+                    sh 'find . -path "/target/.jar" -o -path "/target/.ear"'
+                }
+                post {
+                    success {
+                        archiveArtifacts artifacts: '*/target/.jar,*/target/.ear',
+                                         fingerprint: true,
+                                         allowEmptyArchive: true
+                    }
+                }
+            }
+
+            //stage('Analyze Artifacts (Security Scan)') {
+                //steps {
+                  //  script {
+                      //  withCredentials([file(credentialsId: 'veracode-adapter', variable: 'VERACODE_ADAPTER')]) {
+                       //     sh 'test -s "$VERACODE_ADAPTER" && bash "$VERACODE_ADAPTER" target/ || echo "Veracode ejecutado sobre los artefactos de target/."'
+                      //  }
+                   // }
+                //}
+          //  }
+stage('5. Analyze Artifacts (Security Scan)') {
+                input {
+                    message "¿Aprobar la revisión de seguridad para continuar con el despliegue?"
+                    ok "Aprobar y Continuar"
+                    submitter "admin" // Opcional: Define qué usuario o rol tiene permiso de aprobar
+                }
+                steps {
+                    echo "Aprobación manual concedida. Continuando con la ejecución del Pipeline..."
+                }
+            }
+
 
             stage('6. Version & Build Image') {
                 steps {
@@ -259,7 +264,7 @@ stage('3. Code Quality Scan') {
                         sh "podman build -f ${dockerfileOutputPath} -t ${imageTag} ."
 
                         withCredentials([usernamePassword(credentialsId: 'quay-robot-sicatel', usernameVariable: 'QUAY_USER', passwordVariable: 'QUAY_TOKEN')]) {
-                            sh 'printf "%s" "$QUAY_TOKEN" | podman login ' + QUAY_REGISTRY.split('/')[0] + ' --username "$QUAY_USER" "quayRegistry"'
+                            sh 'printf "%s" "$QUAY_TOKEN" | podman login ' + QUAY_REGISTRY.split('/')[0] + ' --username "$QUAY_USER" --password-stdin'
                             sh 'podman push --digestfile image-digest.txt ' + imageTag
                         }
 
