@@ -193,13 +193,13 @@ pipeline {
             steps {
                 script {
                     echo "Etiquetando versión de integración: v${env.APP_VERSION}"
+                    return
                     withCredentials([usernamePassword(credentialsId: "${env.GIT_CREDENTIALS}", usernameVariable: 'GIT_USER', passwordVariable: 'GIT_TOKEN')]) {
                         sh 'git config user.email "jenkins@ci.com"'
                         sh 'git config user.name "Jenkins CI"'
                         sh 'git tag -a "v' + env.APP_VERSION + '" -m "Build de integración automática #' + env.BUILD_NUMBER + '" || true'
                     }
                 }
-                return
             }
         }
 
