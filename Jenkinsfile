@@ -135,67 +135,72 @@ pipeline {
                     withSonarQubeEnv('SonarServer1') {
                         // 1. Compilar y ejecutar análisis
                         sh "mvn compile org.sonarsource.scanner.maven:sonar-maven-plugin:sonar -Dsonar.projectName=${env.APP_NAME} -Dsonar.projectKey=${env.APP_NAME}"
-                    }
 
-                    echo "=== Consultando Quality Gate mediante API REST (Polling) ==="
-                    
-                    // 2. Extraer datos del reporte local generado por Maven
-                    def reportTask = readFile('target/sonar/report-task.txt')
-                    def serverUrl = (reportTask =~ /serverUrl=(.*)/)[0][1].trim()
-                    def ceTaskId  = (reportTask =~ /ceTaskId=(.*)/)[0][1].trim()
+                        echo "=== Consultando Quality Gate mediante API REST (con Autenticación) ==="
 
-                    echo "ID de tarea en SonarQube: ${ceTaskId}"
+                        // 2. Extraer datos del reporte local generado por Maven
+                        def reportTask = readFile('target/sonar/report-task.txt')
+                        def serverUrl = (reportTask =~ /serverUrl=(.*)/)[0][1].trim()
+                        def ceTaskId  = (reportTask =~ /ceTaskId=(.*)/)[0][1].trim()
 
-                    // 3. Loop de espera a que termine el procesamiento de la tarea
-                    def taskStatus = "PENDING"
-                    def analysisId = ""
-                    def attempts = 0
-                    def maxAttempts = 1000
+                        echo "ID de tarea en SonarQube: ${ceTaskId}"
 
-                    while ((taskStatus == "PENDING" || taskStatus == "IN_PROGRESS") && attempts < maxAttempts) {
-                        sleep 7
-                        attempts++
-                        
-                        def taskResponse = sh(
-                            script: "curl -s -k \"${serverUrl}/api/ce/task?id=${ceTaskId}\"",
-                            returnStdout: true
-                        ).trim()
+                        // 3. Preparar credenciales para curl (-u TOKEN:)
+                        def authArg = env.SONAR_AUTH_TOKEN ? "-u \"${env.SONAR_AUTH_TOKEN}:\"" : ""
 
-                        taskStatus = sh(
-                            script: "echo '${taskResponse}' | grep -o '\"status\":\"[^\"]*\"' | cut -d'\"' -f4",
-                            returnStdout: true
-                        ).trim()
+                        // 4. Bucle de espera (Polling) hasta que SonarQube procese la tarea
+                        def taskStatus = "PENDING"
+                        def analysisId = ""
+                        def attempts = 0
+                        def maxAttempts = 20
+                        def slurper = new groovy.json.JsonSlurperClassic()
 
-                        if (taskStatus == "SUCCESS") {
-                            analysisId = sh(
-                                script: "echo '${taskResponse}' | grep -o '\"analysisId\":\"[^\"]*\"' | cut -d'\"' -f4",
+                        while ((taskStatus == "PENDING" || taskStatus == "IN_PROGRESS") && attempts < maxAttempts) {
+                            sleep 5
+                            attempts++
+
+                            def taskRaw = sh(
+                                script: "curl -s -k ${authArg} \"${serverUrl}/api/ce/task?id=${ceTaskId}\"",
                                 returnStdout: true
                             ).trim()
+
+                            def taskJson = slurper.parseText(taskRaw)
+
+                            if (taskJson.errors) {
+                                error "Error de autenticación/permisos en SonarQube API: ${taskJson.errors[0].msg}"
+                            }
+
+                            taskStatus = taskJson.task.status
+                            if (taskStatus == "SUCCESS") {
+                                analysisId = taskJson.task.analysisId
+                            }
+                            echo "Intento ${attempts}/${maxAttempts}: Estado de la tarea -> ${taskStatus}"
                         }
-                        echo "Intento ${attempts}/${maxAttempts}: Estado de la tarea -> ${taskStatus}"
-                    }
 
-                    if (taskStatus != "SUCCESS") {
-                        error "El análisis en SonarQube no finalizó correctamente. Estado: ${taskStatus}"
-                    }
+                        if (taskStatus != "SUCCESS") {
+                            error "El análisis en SonarQube no finalizó correctamente. Estado: ${taskStatus}"
+                        }
 
-                    // 4. Validar el estado del Quality Gate (OK / ERROR)
-                    def qgResponse = sh(
-                        script: "curl -s -k \"${serverUrl}/api/qualitygates/project_status?analysisId=${analysisId}\"",
-                        returnStdout: true
-                    ).trim()
+                        // 5. Validar el estado del Quality Gate (OK / ERROR)
+                        def qgRaw = sh(
+                            script: "curl -s -k ${authArg} \"${serverUrl}/api/qualitygates/project_status?analysisId=${analysisId}\"",
+                            returnStdout: true
+                        ).trim()
 
-                    def qgStatus = sh(
-                        script: "echo '${qgResponse}' | grep -o '\"status\":\"[^\"]*\"' | head -n 1 | cut -d'\"' -f4",
-                        returnStdout: true
-                    ).trim()
+                        def qgJson = slurper.parseText(qgRaw)
 
-                    echo "Estado final del Quality Gate: ${qgStatus}"
+                        if (qgJson.errors) {
+                            error "Error al obtener Quality Gate: ${qgJson.errors[0].msg}"
+                        }
 
-                    if (qgStatus != "OK") {
-                        error "Quality Gate de SonarQube RECHAZADO con estado: ${qgStatus}"
-                    } else {
-                        echo "=== Quality Gate APROBADO (OK) ==="
+                        def qgStatus = qgJson.projectStatus.status
+                        echo "Estado final del Quality Gate: ${qgStatus}"
+
+                        if (qgStatus != "OK") {
+                            error "Quality Gate de SonarQube RECHAZADO con estado: ${qgStatus}"
+                        } else {
+                            echo "=== Quality Gate APROBADO (OK) ==="
+                        }
                     }
                 }
             }
