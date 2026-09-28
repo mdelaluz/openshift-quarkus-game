@@ -153,7 +153,7 @@ pipeline {
                     def maxAttempts = 1000
 
                     while ((taskStatus == "PENDING" || taskStatus == "IN_PROGRESS") && attempts < maxAttempts) {
-                        sleep 3
+                        sleep 7
                         attempts++
                         
                         def taskResponse = sh(
