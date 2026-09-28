@@ -150,7 +150,7 @@ pipeline {
                     def taskStatus = "PENDING"
                     def analysisId = ""
                     def attempts = 0
-                    def maxAttempts = 20
+                    def maxAttempts = 1000
 
                     while ((taskStatus == "PENDING" || taskStatus == "IN_PROGRESS") && attempts < maxAttempts) {
                         sleep 3
