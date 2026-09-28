@@ -2,9 +2,10 @@ pipeline {
     agent any
 
     tools {
-        maven 'apache-maven-3.9.6'
-        jdk   'Oracle JDK jdk1.8.0_144'
-    }
+            maven "${mavenTool}"
+            jdk   "${jdkTool}"
+        }
+
 
     parameters {
         choice(
