@@ -116,10 +116,10 @@ pipeline {
                     ])
                     
                     def baseVersion = sh(
-                        script: "JAVA_TOOL_OPTIONS='' mvn help:evaluate -Dexpression=project.version -q -DforceStdout 2>/dev/null | tr -d '\\r\\n' || echo '1.0.0'",
+                        script: "JAVA_TOOL_OPTIONS='' mvn help:evaluate -Dexpression=project.version -q -DforceStdout 2>/dev/null | grep -v 'Picked up' | tr -d '\\r\\n' || echo '1.0.0'",
                         returnStdout: true
                     ).trim()
-                    
+
                     env.APP_VERSION = "${(baseVersion && baseVersion != 'null' && baseVersion != '') ? baseVersion : '1.0.0'}-${env.BUILD_NUMBER}"
                     echo "Versión calculada para el artefacto: ${env.APP_VERSION}"
                 }
@@ -206,45 +206,27 @@ pipeline {
         stage('8. Publish Candidate (Build & Push Image)') {
             steps {
                 script {
-                    def assetBase = env.STATIC_ASSETS_DIR
-                    sh "mkdir -p ${assetBase}"
-
-                    def earSourcePath = sh(
-                        script: "find . -path '*/target/*.ear' -o -path '*/target/*.jar' | sort | head -n 1",
-                        returnStdout: true
-                    ).trim()
-
-                    if (!earSourcePath) {
-                        error 'No se encontró ningún artefacto .jar/.ear en target/.'
-                    }
-
-                    def earFileName = earSourcePath.tokenize('/').last()
-                    sh "cp \"${earSourcePath}\" \"${assetBase}/${earFileName}\""
-
-                    // Si no existe un Dockerfile en la raíz, se crea uno estándar dinámicamente
-                    if (!fileExists(env.DOCKERFILE_OUTPUT)) {
-                        def dockerfileContent = """
-FROM ${env.DOCKER_BASE_IMAGE}
-ENV LANGUAGE='en_US:en'
-COPY ${assetBase}/${earFileName} /deployments/app.jar
-EXPOSE 8080
-USER 185
-CMD ["java", "-jar", "/deployments/app.jar"]
-"""
-                        writeFile file: env.DOCKERFILE_OUTPUT, text: dockerfileContent
-                    }
-
                     def imageTag = "${env.QUAY_REGISTRY}:${env.DEPLOY_ENV.toLowerCase()}-${env.BUILD_NUMBER}"
-                    sh "podman build -f ${env.DOCKERFILE_OUTPUT} -t ${imageTag} ."
-
-                    withCredentials([usernamePassword(credentialsId: 'quay-push', usernameVariable: 'QUAY_USER', passwordVariable: 'QUAY_PASSWORD')]) {
-                        sh 'printf "%s" "$QUAY_PASSWORD" | podman login ' + env.QUAY_REGISTRY.split('/')[0] + ' --username "$QUAY_USER" --password-stdin'
-                        sh 'podman push --digestfile image-digest.txt ' + imageTag
+                    
+                    withCredentials([string(credentialsId: 'usuario-generico-quarkus-game', variable: 'OC_TOKEN')]) {
+                        sh '''
+                            set +x
+                            oc login ''' + env.OPENSHIFT_API + ''' --token="$OC_TOKEN" --insecure-skip-tls-verify=true
+                            
+                            # 1. Crear el BuildConfig tipo Docker si no existe
+                            oc new-build --name=''' + env.APP_NAME + '''-builder \
+                                --strategy=docker \
+                                --dockerfile="$(cat ''' + env.DOCKERFILE_OUTPUT + ''')" \
+                                --to-docker=true \
+                                --to="''' + imageTag + '''" || true
+                            
+                            # 2. Enviar el contexto del directorio actual para construir la imagen en el clúster
+                            oc start-build ''' + env.APP_NAME + '''-builder --from-dir=. --follow
+                        '''
                     }
-
-                    env.IMAGE_DIGEST = readFile('image-digest.txt').trim()
-                    env.IMAGE_REF = "${env.QUAY_REGISTRY}@${env.IMAGE_DIGEST}"
-                    echo "Imagen publicada en Quay: ${env.IMAGE_REF}"
+        
+                    env.IMAGE_REF = imageTag
+                    echo "Imagen construida y publicada vía OpenShift BuildConfig: ${env.IMAGE_REF}"
                 }
             }
         }
