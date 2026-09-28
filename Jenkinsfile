@@ -126,24 +126,76 @@ pipeline {
             }
         }
 
-        stage('3. Code Quality Scan') {
+       stage('3. Code Quality Scan') {
             when {
                 expression { params.SKIP_SONARQUBE == false }
             }
             steps {
                 script {
                     withSonarQubeEnv('SonarServer1') {
-                        // Genera los .class primero para evitar AnalysisException en SonarQube
+                        // 1. Compilar y ejecutar análisis
                         sh "mvn compile org.sonarsource.scanner.maven:sonar-maven-plugin:sonar -Dsonar.projectName=${env.APP_NAME} -Dsonar.projectKey=${env.APP_NAME}"
                     }
-                    timeout(time: 15, unit: 'MINUTES') {
-                        script {
-                            def qualityGate = waitForQualityGate()
-                            echo "Estado de Quality Gate: ${qualityGate.status}"
-                            if (qualityGate.status != 'OK') {
-                                error "Quality Gate falló con estado: ${qualityGate.status}"
-                            }
+
+                    echo "=== Consultando Quality Gate mediante API REST (Polling) ==="
+                    
+                    // 2. Extraer datos del reporte local generado por Maven
+                    def reportTask = readFile('target/sonar/report-task.txt')
+                    def serverUrl = (reportTask =~ /serverUrl=(.*)/)[0][1].trim()
+                    def ceTaskId  = (reportTask =~ /ceTaskId=(.*)/)[0][1].trim()
+
+                    echo "ID de tarea en SonarQube: ${ceTaskId}"
+
+                    // 3. Loop de espera a que termine el procesamiento de la tarea
+                    def taskStatus = "PENDING"
+                    def analysisId = ""
+                    def attempts = 0
+                    def maxAttempts = 20
+
+                    while ((taskStatus == "PENDING" || taskStatus == "IN_PROGRESS") && attempts < maxAttempts) {
+                        sleep 3
+                        attempts++
+                        
+                        def taskResponse = sh(
+                            script: "curl -s -k \"${serverUrl}/api/ce/task?id=${ceTaskId}\"",
+                            returnStdout: true
+                        ).trim()
+
+                        taskStatus = sh(
+                            script: "echo '${taskResponse}' | grep -o '\"status\":\"[^\"]*\"' | cut -d'\"' -f4",
+                            returnStdout: true
+                        ).trim()
+
+                        if (taskStatus == "SUCCESS") {
+                            analysisId = sh(
+                                script: "echo '${taskResponse}' | grep -o '\"analysisId\":\"[^\"]*\"' | cut -d'\"' -f4",
+                                returnStdout: true
+                            ).trim()
                         }
+                        echo "Intento ${attempts}/${maxAttempts}: Estado de la tarea -> ${taskStatus}"
+                    }
+
+                    if (taskStatus != "SUCCESS") {
+                        error "El análisis en SonarQube no finalizó correctamente. Estado: ${taskStatus}"
+                    }
+
+                    // 4. Validar el estado del Quality Gate (OK / ERROR)
+                    def qgResponse = sh(
+                        script: "curl -s -k \"${serverUrl}/api/qualitygates/project_status?analysisId=${analysisId}\"",
+                        returnStdout: true
+                    ).trim()
+
+                    def qgStatus = sh(
+                        script: "echo '${qgResponse}' | grep -o '\"status\":\"[^\"]*\"' | head -n 1 | cut -d'\"' -f4",
+                        returnStdout: true
+                    ).trim()
+
+                    echo "Estado final del Quality Gate: ${qgStatus}"
+
+                    if (qgStatus != "OK") {
+                        error "Quality Gate de SonarQube RECHAZADO con estado: ${qgStatus}"
+                    } else {
+                        echo "=== Quality Gate APROBADO (OK) ==="
                     }
                 }
             }
