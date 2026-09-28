@@ -1,5 +1,5 @@
     //def jdkTool             = 'Oracle JDK jdk1.8.0_144'
-    def jdkTool             = 'Java 17'
+    def jdkTool             = 'Java 21'
     def appName             = 'quarkus-game'
     def gitRepoUrl          = 'https://github.com/psehgaft/openshift-quarkus-game.git'
     def gitDeployRepoUrl    = ''
@@ -10,7 +10,7 @@
     def staticAssetsProfile = 'core'
     def dockerfileEnabled   = true
     def dockerfileOutputPath = 'Dockerfile'
-    def dockerBaseImage     = 'registry.access.redhat.com/ubi9/openjdk-17-runtime:latest'
+    def dockerBaseImage     = 'registry.access.redhat.com/ubi9/openjdk-21-runtime:latest'
     def quayRegistry        = 'quay-9tfrr.apps.cluster-9tfrr.9tfrr.sandbox1834.opentlc.com/quayadmin/quarkus-game'
     def openshiftApi        = 'https://api.cluster-9tfrr.9tfrr.sandbox1834.opentlc.com:6443'
 
