@@ -208,7 +208,7 @@ pipeline {
                 script {
                     def imageTag = "${env.QUAY_REGISTRY}:${env.DEPLOY_ENV.toLowerCase()}-${env.BUILD_NUMBER}"
                     
-                    withCredentials([string(credentialsId: 'usuario-generico-quarkus-game', variable: 'OC_TOKEN')]) {
+                    withCredentials([string(credentialsId: 'oc-dev-token', variable: 'OC_TOKEN')]) {
                         sh '''
                             set +x
                             oc login ''' + env.OPENSHIFT_API + ''' --token="$OC_TOKEN" --insecure-skip-tls-verify=false
