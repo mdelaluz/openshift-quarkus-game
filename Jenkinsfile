@@ -118,17 +118,15 @@ pipeline {
                             credentialsId : "${env.GIT_CREDENTIALS}"
                         ]]
                     ])
-                    
-                    //def baseVersion = sh(
-                      //  script: "JAVA_TOOL_OPTIONS='' mvn help:evaluate -Dexpression=project.version -q -DforceStdout 2>/dev/null | grep -v 'Picked up' | tr -d '\\r\\n' || echo '1.0.0'",
-                       // returnStdout: true
-                    //).trim()
 
                     def pomContent = readFile('pom.xml')
-                    def matcher = pomContent =~ /<version>(.*?)<\/version>/
-                    def baseVersion = matcher ? matcher[0][1].trim() : '1.0.0'
+                    def matcher = pomContent =~ /<version>([^<]+)<\/version>/
+                    def baseVersion = '1.0.0'
+                    if (matcher.find()) {
+                        baseVersion = matcher.group(1).trim()
+                    }
 
-                    env.APP_VERSION = "${(baseVersion && baseVersion != 'null' && baseVersion != '') ? baseVersion : '1.0.0'}-${env.BUILD_NUMBER}"
+                    env.APP_VERSION = "${baseVersion}-${env.BUILD_NUMBER}"
                     echo "Versión calculada para el artefacto: ${env.APP_VERSION}"
                 }
             }
