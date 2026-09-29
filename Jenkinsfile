@@ -54,7 +54,7 @@ pipeline {
         APP_NAME         = 'quarkus-game'
         GIT_REPO_URL     = 'https://github.com/psehgaft/openshift-quarkus-game.git'
         GIT_CREDENTIALS  = 'gitlab-deploy-token-38'
-        JENKINS_OC_CREDS = 'usuario-generico-quarkus-game' // ID de credencial en Jenkins
+        JENKINS_OC_CREDS = 'usuario-generico' // ID de credencial en Jenkins
         QUAY_SECRET_NAME = 'quay-push-secret'             // Secret creado en OpenShift para Quay
         
         RAMA             = "${params.RAMA_OVERRIDE?.trim() ?: 'test'}"
