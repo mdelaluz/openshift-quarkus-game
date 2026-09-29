@@ -67,7 +67,8 @@ pipeline {
         IMAGE_REF           = ''
         APP_VERSION         = ''
         JENKINS_OC_CREDS    = 'usuario-generico'
-        BUILD_NAMESPACE     = 'dev-quarkus-game'
+        //BUILD_NAMESPACE     = 'dev-quarkus-game'
+        BUILD_NAMESPACE     = 'sicatel-dev'
         QUAY_SECRET_NAME    = 'quay-push-secret'
     }
 
@@ -207,23 +208,11 @@ pipeline {
          stage('7. Build Image & Publish to Quay') {
             steps {
                 script {
-
-                    sh  "echo  ${BUILD_NUMBER}"
-                    def imageTag = "${QUAY_REGISTRY}:${DEPLOY_ENV.toLowerCase()}-${BUILD_NUMBER}"
-                    env.IMAGE_REF = imageTag
+                    echo "Build número: ${env.BUILD_NUMBER}"
+                    env.IMAGE_REF = "${env.QUAY_REGISTRY}:${env.DEPLOY_ENV.toLowerCase()}-${env.BUILD_NUMBER}"
                     
-                    if (!QUAY_REGISTRY?.trim()) {     
-                        error("QUAY_REGISTRY no está definido") 
-                    } 
-                        if (!DEPLOY_ENV?.trim()) {     
-                            error("DEPLOY_ENV no está definido") 
-                        } 
-                            if (!BUILD_NUMBER?.trim()) {     
-                                error("BUILD_NUMBER no está definido") 
-                            } 
-                                
                     echo "Iniciando compilación en OpenShift y Push hacia Quay: ${env.IMAGE_REF}"
- 
+
                     withCredentials([usernamePassword(
                         credentialsId   : "${env.JENKINS_OC_CREDS}",
                         usernameVariable: 'OC_USER',
@@ -231,9 +220,9 @@ pipeline {
                     )]) {
                         sh '''
                             set +x
-                            # 1. Autenticarse en OpenShift
+                            # 1. Autenticarse en OpenShift y seleccionar/crear el proyecto
                             oc login "$OPENSHIFT_API" -u "$OC_USER" -p "$OC_PASSWORD" --insecure-skip-tls-verify=false
-                            oc project ${BUILD_NAMESPACE}
+                            oc project ''' + env.BUILD_NAMESPACE + ''' || oc new-project ''' + env.BUILD_NAMESPACE + '''
  
                             # 2. Crear el BuildConfig tipo Docker si no existe, asignando el push-secret
                             if ! oc get buildconfig "${APP_NAME}-builder" -n ${BUILD_NAMESPACE} >/dev/null 2>&1; then
