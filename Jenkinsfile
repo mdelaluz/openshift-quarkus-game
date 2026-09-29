@@ -287,6 +287,10 @@ pipeline {
                             set +x
                             oc login "${env.OPENSHIFT_API}" -u "\$OC_USER" -p "\$OC_PASSWORD" --insecure-skip-tls-verify=false
                             oc project "${targetNamespace}" || oc new-project "${targetNamespace}"
+                            
+                            # Vincular secreto de lectura de Quay a la ServiceAccount default
+                            oc secrets link default "${env.QUAY_SECRET_NAME}" --for=pull -n "${targetNamespace}" || true
+
                             oc set image deployment/${env.APP_NAME} *="${env.IMAGE_REF}" -n "${targetNamespace}" || oc create deployment ${env.APP_NAME} --image="${env.IMAGE_REF}" -n "${targetNamespace}"
                             oc rollout status deployment/${env.APP_NAME} -n "${targetNamespace}" --timeout=5m
                         """
