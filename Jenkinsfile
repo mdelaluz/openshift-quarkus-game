@@ -226,10 +226,9 @@ pipeline {
                                         }
 
                         withCredentials([usernamePassword(credentialsId: 'usuario-generico',usernameVariable: 'OC_USER', passwordVariable: 'OC_PASSWORD')]) {
-                            sh '''        oc login "$OPENSHIFT_API" \
+                            sh '''       oc login "$OPENSHIFT_API" \
                                          -u "$OC_USER" \
-                                                -p "$OC_PASSWORD" \
-                                        --insecure-skip-tls-verify=false
+                                        -p "$OC_PASSWORD"
 
                                 oc project sicatel-dev
                                 echo Proyecto activo: $(oc project -q)
