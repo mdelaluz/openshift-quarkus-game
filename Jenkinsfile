@@ -233,21 +233,23 @@ pipeline {
                                 --push-secret="${env.QUAY_SECRET_NAME}" \
                                 -n "${env.BUILD_NAMESPACE}"
 
-    oc patch "bc/${APP_NAME}-builder" \
-        --type=merge \
-        -n "${BUILD_NAMESPACE}" \
-        -p '{
-            "spec": {
-                "resources": {
-                    "requests": {
-                        "cpu": "1660m",
-                        "memory": "3Gi"
-                    },
-                    "limits": {
-                        "cpu": "3660m",
-                        "memory": "4Gi"
-                    }
+    oc patch buildconfig "${env.APP_NAME}-builder" \
+    --type=merge \
+    --patch='{
+        "spec": {
+            "resources": {
+                "requests": {
+                    "cpu": "500m",
+                    "memory": "1Gi"
+                },
+                "limits": {
+                    "cpu": "1",
+                    "memory": "2Gi"
                 }
+            }
+        }
+    }' \
+    -n "${env.BUILD_NAMESPACE}"
                                 
 
                             # 4. Enviar contexto actual y construir imagen en el clúster
