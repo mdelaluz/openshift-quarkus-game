@@ -189,7 +189,6 @@ pipeline {
                     }
                 }
             }
-            }
 
          stage('6. Version & Build Image') {
                  steps {
