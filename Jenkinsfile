@@ -202,7 +202,7 @@ pipeline {
                     }
                 }
              }
-            }
+        }
 
          stage('7. Build Image & Publish to Quay') {
             steps {
@@ -315,7 +315,7 @@ pipeline {
                 }
             }
         }
-
+    }
     post {
         always {
             deleteDir()
@@ -327,4 +327,3 @@ pipeline {
             echo "Pipeline ${env.APP_NAME} fallido. Revisa los logs."
         }
     }
-}
