@@ -233,6 +233,23 @@ pipeline {
                                 --push-secret="${env.QUAY_SECRET_NAME}" \
                                 -n "${env.BUILD_NAMESPACE}"
 
+    oc patch "bc/${APP_NAME}-builder" \
+        --type=merge \
+        -n "${BUILD_NAMESPACE}" \
+        -p '{
+            "spec": {
+                "resources": {
+                    "requests": {
+                        "cpu": "1660m",
+                        "memory": "3Gi"
+                    },
+                    "limits": {
+                        "cpu": "3660m",
+                        "memory": "4Gi"
+                    }
+                }
+                                
+
                             # 4. Enviar contexto actual y construir imagen en el clúster
                             oc start-build "${env.APP_NAME}-builder" --from-dir=. --follow -n "${env.BUILD_NAMESPACE}"
                         """
