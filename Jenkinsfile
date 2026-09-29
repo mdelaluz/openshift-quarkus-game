@@ -222,25 +222,20 @@ pipeline {
                             oc login "${env.OPENSHIFT_API}" -u "\$OC_USER" -p "\$OC_PASSWORD" --insecure-skip-tls-verify=false
                             oc project "${env.BUILD_NAMESPACE}" || oc new-project "${env.BUILD_NAMESPACE}"
 
-                            # 2. Crear el BuildConfig tipo Docker si no existe, asignando el push-secret
-                            if ! oc get buildconfig "${env.APP_NAME}-builder" -n "${env.BUILD_NAMESPACE}" >/dev/null 2>&1; then
-                                echo "Creando nuevo BuildConfig para ${env.APP_NAME}..."
-                                oc new-build \
-                                    --name="${env.APP_NAME}-builder" \
-                                    --strategy=docker \
-                                    --binary \
-                                    --to-docker=true \
-                                    --to="${env.IMAGE_REF}" \
-                                    --push-secret="${env.QUAY_SECRET_NAME}" \
-                                    -n "${env.BUILD_NAMESPACE}"
-                            else
-                                echo "BuildConfig existente. Actualizando la imagen destino a: ${env.IMAGE_REF}"
-                                oc patch buildconfig/${env.APP_NAME}-builder \
-                                    --patch '{"spec":{"output":{"to":{"name":"${env.IMAGE_REF}"}}}}' \
-                                    -n "${env.BUILD_NAMESPACE}"
-                            fi
+                            # 2. Eliminar BuildConfig anterior para limpiar referencias 'null' antiguas
+                            oc delete buildconfig "${env.APP_NAME}-builder" -n "${env.BUILD_NAMESPACE}" --ignore-not-found
 
-                            # 3. Enviar contexto actual y construir imagen en el clúster
+                            # 3. Crear BuildConfig fresco apuntando directamente a Quay
+                            oc new-build \
+                                --name="${env.APP_NAME}-builder" \
+                                --strategy=docker \
+                                --binary \
+                                --to-docker=true \
+                                --to="${env.IMAGE_REF}" \
+                                --push-secret="${env.QUAY_SECRET_NAME}" \
+                                -n "${env.BUILD_NAMESPACE}"
+
+                            # 4. Enviar contexto actual y construir imagen en el clúster
                             oc start-build "${env.APP_NAME}-builder" --from-dir=. --follow -n "${env.BUILD_NAMESPACE}"
                         """
                     }
@@ -285,11 +280,18 @@ pipeline {
                     def targetNamespace = "${params.APLICATIVO.toLowerCase()}-${env.DEPLOY_ENV.toLowerCase()}"
                     echo "Desplegando en OpenShift (${env.OPENSHIFT_API}) - Namespace: ${targetNamespace}"
 
-                    withCredentials([string(credentialsId: 'usuario-generico', variable: 'OC_USER')]) {
-                        sh 'oc login ' + env.OPENSHIFT_API + ' --token="$OC_USER" --insecure-skip-tls-verify=false'
-                        sh 'oc project ' + targetNamespace + ' || oc new-project ' + targetNamespace
-                        sh 'oc set image deployment/' + env.APP_NAME + ' ' + env.APP_NAME + '="' + env.IMAGE_REF + '" -n ' + targetNamespace + ' || oc create deployment ' + env.APP_NAME + ' --image="' + env.IMAGE_REF + '" -n ' + targetNamespace
-                        sh 'oc rollout status deployment/' + env.APP_NAME + ' -n ' + targetNamespace + ' --timeout=5m'
+                    withCredentials([usernamePassword(
+                        credentialsId   : 'usuario-generico',
+                        usernameVariable: 'OC_USER',
+                        passwordVariable: 'OC_PASSWORD'
+                    )]) {
+                        sh """
+                            set +x
+                            oc login "${env.OPENSHIFT_API}" -u "\$OC_USER" -p "\$OC_PASSWORD" --insecure-skip-tls-verify=false
+                            oc project "${targetNamespace}" || oc new-project "${targetNamespace}"
+                            oc set image deployment/${env.APP_NAME} ${env.APP_NAME}="${env.IMAGE_REF}" -n "${targetNamespace}" || oc create deployment ${env.APP_NAME} --image="${env.IMAGE_REF}" -n "${targetNamespace}"
+                            oc rollout status deployment/${env.APP_NAME} -n "${targetNamespace}" --timeout=5m
+                        """
                     }
                 }
             }
