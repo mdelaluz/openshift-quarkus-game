@@ -222,7 +222,7 @@ pipeline {
                                 error("BUILD_NUMBER no está definido") 
                             } 
                                 
-                    echo "Iniciando compilación en OpenShift y Push hacia Quay: ${IMAGE_REF}"
+                    echo "Iniciando compilación en OpenShift y Push hacia Quay: ${env.IMAGE_REF}"
  
                     withCredentials([usernamePassword(
                         credentialsId   : "${env.JENKINS_OC_CREDS}",
