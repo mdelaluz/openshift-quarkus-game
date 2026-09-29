@@ -178,9 +178,9 @@ pipeline {
         }
 
          stage('5. Application Security Scan') {
-               when {
+            when {
                 expression { params.SKIP_VERACODE == false }
-            }       
+            }        
             steps {
                 script {
                     return
@@ -189,10 +189,10 @@ pipeline {
                     }
                 }
             }
-         }
+        }
 
          stage('6. Version & Build Image') {
-                 steps {
+            steps {
                 script {
                     echo "Etiquetando versión de integración: v${env.APP_VERSION}"
                     withCredentials([usernamePassword(credentialsId: "${env.GIT_CREDENTIALS}", usernameVariable: 'GIT_USER', passwordVariable: 'GIT_TOKEN')]) {
@@ -201,7 +201,7 @@ pipeline {
                         sh 'git tag -a "v' + env.APP_VERSION + '" -m "Build de integración automática #' + env.BUILD_NUMBER + '" || true'
                     }
                 }
-             }
+            }
         }
 
          stage('7. Build Image & Publish to Quay') {
@@ -316,6 +316,7 @@ pipeline {
             }
         }
     }
+
     post {
         always {
             deleteDir()
