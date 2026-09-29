@@ -225,7 +225,7 @@ pipeline {
                                              error 'imageTag está vacío'
                                         }
 
-                        withCredentials([usernamePassword(credentialsId: 'usuario-generico-sicatel',usernameVariable: 'OC_USER', passwordVariable: 'OC_PASSWORD')]) {
+                        withCredentials([usernamePassword(credentialsId: 'usuario-generico',usernameVariable: 'OC_USER', passwordVariable: 'OC_PASSWORD')]) {
                             sh '''        oc login "$OPENSHIFT_API" \
                                          -u "$OC_USER" \
                                                 -p "$OC_PASSWORD" \
