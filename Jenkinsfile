@@ -217,7 +217,8 @@ pipeline {
 
                     sh  "echo  ${BUILD_NUMBER}"
                     def imageTag = "${QUAY_REGISTRY}:${DEPLOY_ENV.toLowerCase()}-${BUILD_NUMBER}"
-                   
+                    env.IMAGE_REF = imageTag
+                    
                     if (!QUAY_REGISTRY?.trim()) {     
                         error("QUAY_REGISTRY no está definido") 
                     } 
@@ -228,13 +229,7 @@ pipeline {
                                 error("BUILD_NUMBER no está definido") 
                             } 
                                 
-                    def IMAGE_REF = "${QUAY_REGISTRY}:${DEPLOY_ENV.toLowerCase()}-${BUILD_NUMBER}"
                     echo "Iniciando compilación en OpenShift y Push hacia Quay: ${IMAGE_REF}"
-                    def registry = env.QUAY_REGISTRY ?: "telcel-quay-telcel-quay.apps.acmbmnp.telcelcloud.dt/repository/vibcaja/d02-vibcaja-sicatel-authentication-api"
-                    def deployEnv = (env.DEPLOY_ENV ?: "dev").toLowerCase()
-                    def buildNum = env.BUILD_NUMBER ?: currentBuild.number ?: "0"
-                        IMAGE_REF = "${registry}:${deployEnv}-${buildNum}"
-    
  
                     withCredentials([usernamePassword(
                         credentialsId   : "${env.JENKINS_OC_CREDS}",
