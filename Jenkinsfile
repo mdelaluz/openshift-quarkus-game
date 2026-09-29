@@ -211,52 +211,50 @@ pipeline {
             }
         }
 
-         stage('7. Publish Candidate') {
-               steps {
-                    script {
-                        def imageTag = "${env.QUAY_REGISTRY}:${env.DEPLOY_ENV.toLowerCase()}-${env.BUILD_NUMBER}"
-                        if (!QUAY_REGISTRY?.trim()) {
-                                 error 'QUAY_REGISTRY está vacío'
-                                  } 
-                                 if (!DEPLOY_ENV?.trim()) {
-                                         error 'DEPLOY_ENV está vacío' 
-                                         }
-                                          if (!imageTag?.trim()) {    
-                                             error 'imageTag está vacío'
-                                        }
+         stage('7. Build Image & Publish to Quay') {
+            steps {
+                script {
+                    // Tag con el que se identificará la imagen en Red Hat Quay
+                    def imageTag = "${env.QUAY_REGISTRY}:${env.DEPLOY_ENV.toLowerCase()}-${env.BUILD_NUMBER}"
+                    env.IMAGE_REF = imageTag
 
-                        withCredentials([usernamePassword(credentialsId: 'usuario-generico',usernameVariable: 'OC_USER', passwordVariable: 'OC_PASSWORD')]) {
-                            sh '''       oc login "$OPENSHIFT_API" \
-                                         -u "$OC_USER" \
-                                        -p "$OC_PASSWORD" \
-                                        --insecure-skip-tls-verify=true
+                    echo "Iniciando compilación en OpenShift y Push hacia Quay: ${env.IMAGE_REF}"
 
-                                oc project sicatel-dev
-                                echo Proyecto activo: $(oc project -q)
-  
-                                # 1. Crear el BuildConfig tipo Docker si no existe
-                                if ! oc get buildconfig "${APP_NAME}-builder" >/dev/null 2>&1; then
-                                        oc new-build \
-                                        --name="${APP_NAME}-builder" \
-                                        --strategy=docker \
-                                        --binary \
-                                        --to-docker=true \
-                                        --to="${IMAGE_TAG}" 
-                                    else    
-                                         echo "BuildConfig existente: ${APP_NAME}-builder" 
-                                fi
-                                
-                                # 2. Enviar el contexto del directorio actual para construir la imagen en el clúster
-                                oc start-build ''' + env.APP_NAME + '''-builder --from-dir=. --follow
-                            '''
-                        }
-            
-                        env.IMAGE_REF = imageTag
-                        echo "Imagen construida y publicada vía OpenShift BuildConfig: ${env.IMAGE_REF}"
+                    withCredentials([usernamePassword(
+                        credentialsId   : "${env.JENKINS_OC_CREDS}",
+                        usernameVariable: 'OC_USER',
+                        passwordVariable: 'OC_PASSWORD'
+                    )]) {
+                        sh """
+                            # 1. Autenticarse en OpenShift
+                            oc login ${env.OPENSHIFT_API} -u "$OC_USER" -p "$OC_PASSWORD" --insecure-skip-tls-verify=true
+                            oc project ${env.BUILD_NAMESPACE}
+
+                            # 2. Crear el BuildConfig tipo Docker si no existe, asignando el push-secret
+                            if ! oc get buildconfig "${env.APP_NAME}-builder" -n ${env.BUILD_NAMESPACE} >/dev/null 2>&1; then
+                                echo "Creando nuevo BuildConfig para ${env.APP_NAME}..."
+                                oc new-build \
+                                    --name="${env.APP_NAME}-builder" \
+                                    --strategy=docker \
+                                    --binary \
+                                    --to-docker=true \
+                                    --to="${env.IMAGE_REF}" \
+                                    --push-secret="${env.QUAY_SECRET_NAME}" \
+                                    -n ${env.BUILD_NAMESPACE}
+                            else
+                                echo "BuildConfig existente. Actualizando la imagen destino a: ${env.IMAGE_REF}"
+                                oc patch bc/${env.APP_NAME}-builder -p '{"spec":{"output":{"to":{"name":"'${env.IMAGE_REF}'"}}}}' -n ${env.BUILD_NAMESPACE}
+                            fi
+
+                            # 3. Enviar el contexto del directorio actual para construir la imagen y subirla a Quay
+                            oc start-build ${env.APP_NAME}-builder --from-dir=. --follow -n ${env.BUILD_NAMESPACE}
+                        """
                     }
-                }
 
+                    echo "Imagen construida y publicada exitosamente en Quay: ${env.IMAGE_REF}"
+                }
             }
+        }
 
         stage('9. Generate SBOM & Scan Image') {
             steps {
