@@ -63,11 +63,7 @@ pipeline {
         DOCKER_BASE_IMAGE   = 'registry.access.redhat.com/ubi9/openjdk-17-runtime:latest'
         STATIC_ASSETS_DIR   = 'container-assets'
         DOCKERFILE_OUTPUT   = 'Dockerfile'
-        IMAGE_DIGEST        = ''
-        IMAGE_REF           = ''
-        APP_VERSION         = ''
         JENKINS_OC_CREDS    = 'usuario-generico'
-        //BUILD_NAMESPACE     = 'dev-quarkus-game'
         BUILD_NAMESPACE     = 'sicatel-dev'
         QUAY_SECRET_NAME    = 'quay-push-secret'
     }
@@ -207,9 +203,11 @@ pipeline {
             steps {
                 script {
                     echo "Build número: ${env.BUILD_NUMBER}"
-                    env.IMAGE_REF = "${env.QUAY_REGISTRY}:${env.DEPLOY_ENV.toLowerCase()}-${env.BUILD_NUMBER}"
+                    def appEnvLower = env.DEPLOY_ENV ? env.DEPLOY_ENV.toLowerCase() : 'dev'
+                    def computedImageRef = "${env.QUAY_REGISTRY}:${appEnvLower}-${env.BUILD_NUMBER}"
+                    env.IMAGE_REF = computedImageRef
 
-                    echo "Iniciando compilación en OpenShift y Push hacia Quay: ${env.IMAGE_REF}"
+                    echo "Iniciando compilación en OpenShift y Push hacia Quay: ${computedImageRef}"
 
                     withCredentials([usernamePassword(
                         credentialsId   : "${env.JENKINS_OC_CREDS}",
@@ -222,16 +220,16 @@ pipeline {
                             oc login "${env.OPENSHIFT_API}" -u "\$OC_USER" -p "\$OC_PASSWORD" --insecure-skip-tls-verify=false
                             oc project "${env.BUILD_NAMESPACE}" || oc new-project "${env.BUILD_NAMESPACE}"
 
-                            # 2. Eliminar BuildConfig anterior para limpiar referencias 'null' antiguas
+                            # 2. Eliminar BuildConfig previo corrupto con destino 'null'
                             oc delete buildconfig "${env.APP_NAME}-builder" -n "${env.BUILD_NAMESPACE}" --ignore-not-found
 
-                            # 3. Crear BuildConfig fresco apuntando directamente a Quay
+                            # 3. Crear BuildConfig apuntando explícitamente a Quay
                             oc new-build \
                                 --name="${env.APP_NAME}-builder" \
                                 --strategy=docker \
                                 --binary \
                                 --to-docker=true \
-                                --to="${env.IMAGE_REF}" \
+                                --to="${computedImageRef}" \
                                 --push-secret="${env.QUAY_SECRET_NAME}" \
                                 -n "${env.BUILD_NAMESPACE}"
 
