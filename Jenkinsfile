@@ -126,7 +126,27 @@ pipeline {
             }
         }
 
-       stage('3. Code Quality Scan') {
+        stage('3. Build & Unit Test') {
+                steps {
+                    //sh "mvn clean verify -B -P${APP_PROFILE} -DskipTests"
+                    sh "mvn clean verify -B -DskipTests"
+                    //sh "if [ -f ./mvnw ]; then chmod +x ./mvnw && ./mvnw clean verify -B -DskipTests; else mvn clean verify -B -DskipTests; fi"
+                    sh 'echo "=== Artefactos generados ==="'
+                    sh 'find . -path "*/target/*.jar" -o -path "*/target/*.ear"'
+                }
+                post {
+                    success {
+                        archiveArtifacts artifacts: '**/target/*.jar,**/target/*.ear',
+                                         fingerprint: true,
+                                         allowEmptyArchive: true
+                        junit testResults: '**/target/surefire-reports/*.xml',
+                              allowEmptyResults: true
+                    }
+                }
+            }
+
+
+       stage('4. Code Quality Scan') {
             when {
                 expression { params.SKIP_SONARQUBE == false }
             }
@@ -150,34 +170,8 @@ pipeline {
             }
         }
 
-        stage('4. Unit Test') {
-            steps {
-                sh "mvn test -B"
-            }
-            post {
-                always {
-                    junit testResults: '**/target/surefire-reports/*.xml', allowEmptyResults: true
-                }
-            }
-        }
-
-        stage('5. Build') {
-            steps {
-                sh "mvn package -B -DskipTests"
-                sh 'echo "=== Artefactos generados ==="'
-                sh 'find . -path "*/target/*.jar" -o -path "*/target/*.ear"'
-            }
-            post {
-                success {
-                    archiveArtifacts artifacts: '**/target/*.jar,**/target/*.ear',
-                                     fingerprint: true,
-                                     allowEmptyArchive: true
-                }
-            }
-        }
-
-        stage('6. Application Security Scan') {
-            when {
+         stage('5. Application Security Scan') {
+               when {
                 expression { params.SKIP_VERACODE == false }
             }       
             steps {
@@ -188,7 +182,21 @@ pipeline {
                     }
                 }
             }
-        }
+            }
+
+         stage('6. Version & Build Image') {
+                 steps {
+                script {
+                    echo "Etiquetando versión de integración: v${env.APP_VERSION}"
+                    withCredentials([usernamePassword(credentialsId: "${env.GIT_CREDENTIALS}", usernameVariable: 'GIT_USER', passwordVariable: 'GIT_TOKEN')]) {
+                        sh 'git config user.email "jenkins@ci.com"'
+                        sh 'git config user.name "Jenkins CI"'
+                        sh 'git tag -a "v' + env.APP_VERSION + '" -m "Build de integración automática #' + env.BUILD_NUMBER + '" || true'
+                    }
+                }
+             }
+            }
+
 
         stage('7. Version & Tagging') {
             steps {
@@ -203,33 +211,52 @@ pipeline {
             }
         }
 
-        stage('8. Publish Candidate (Build & Push Image)') {
-            steps {
-                script {
-                    def imageTag = "${env.QUAY_REGISTRY}:${env.DEPLOY_ENV.toLowerCase()}-${env.BUILD_NUMBER}"
-                    
-                    withCredentials([string(credentialsId: 'usuario-generico', variable: 'OC_TOKEN')]) {
-                        sh '''
-                            set +x
-                            oc login ''' + env.OPENSHIFT_API + ''' --token="$OC_TOKEN" --insecure-skip-tls-verify=false
-                            
-                            # 1. Crear el BuildConfig tipo Docker si no existe
-                            oc new-build --name=''' + env.APP_NAME + '''-builder \
-                                --strategy=docker \
-                                --dockerfile="$(cat ''' + env.DOCKERFILE_OUTPUT + ''')" \
-                                --to-docker=true \
-                                --to="''' + imageTag + '''" || true
-                            
-                            # 2. Enviar el contexto del directorio actual para construir la imagen en el clúster
-                            oc start-build ''' + env.APP_NAME + '''-builder --from-dir=. --follow
-                        '''
+         stage('7. Publish Candidate') {
+               steps {
+                    script {
+                        def imageTag = "${env.QUAY_REGISTRY}:${env.DEPLOY_ENV.toLowerCase()}-${env.BUILD_NUMBER}"
+                        if (!QUAY_REGISTRY?.trim()) {
+                                 error 'QUAY_REGISTRY está vacío'
+                                  } 
+                                 if (!DEPLOY_ENV?.trim()) {
+                                         error 'DEPLOY_ENV está vacío' 
+                                         }
+                                          if (!imageTag?.trim()) {    
+                                             error 'imageTag está vacío'
+                                        }
+
+                        withCredentials([usernamePassword(credentialsId: 'usuario-generico-sicatel',usernameVariable: 'OC_USER', passwordVariable: 'OC_PASSWORD')]) {
+                            sh '''        oc login "$OPENSHIFT_API" \
+                                         -u "$OC_USER" \
+                                                -p "$OC_PASSWORD" \
+                                        --insecure-skip-tls-verify=false
+
+                                oc project sicatel-dev
+                                echo Proyecto activo: $(oc project -q)
+  
+                                # 1. Crear el BuildConfig tipo Docker si no existe
+                                if ! oc get buildconfig "${APP_NAME}-builder" >/dev/null 2>&1; then
+                                        oc new-build \
+                                        --name="${APP_NAME}-builder" \
+                                        --strategy=docker \
+                                        --binary \
+                                        --to-docker=true \
+                                        --to="${IMAGE_TAG}" 
+                                    else    
+                                         echo "BuildConfig existente: ${APP_NAME}-builder" 
+                                fi
+                                
+                                # 2. Enviar el contexto del directorio actual para construir la imagen en el clúster
+                                oc start-build ''' + env.APP_NAME + '''-builder --from-dir=. --follow
+                            '''
+                        }
+            
+                        env.IMAGE_REF = imageTag
+                        echo "Imagen construida y publicada vía OpenShift BuildConfig: ${env.IMAGE_REF}"
                     }
-        
-                    env.IMAGE_REF = imageTag
-                    echo "Imagen construida y publicada vía OpenShift BuildConfig: ${env.IMAGE_REF}"
                 }
+
             }
-        }
 
         stage('9. Generate SBOM & Scan Image') {
             steps {
