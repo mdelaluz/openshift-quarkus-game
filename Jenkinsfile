@@ -66,6 +66,9 @@ pipeline {
         IMAGE_DIGEST        = ''
         IMAGE_REF           = ''
         APP_VERSION         = ''
+        JENKINS_OC_CREDS    = 'usuario-generico'
+        BUILD_NAMESPACE     = 'dev-quarkus-game'
+        QUAY_SECRET_NAME    = 'quay-push-secret'
     }
 
     options {
@@ -115,10 +118,14 @@ pipeline {
                         ]]
                     ])
                     
-                    def baseVersion = sh(
-                        script: "JAVA_TOOL_OPTIONS='' mvn help:evaluate -Dexpression=project.version -q -DforceStdout 2>/dev/null | grep -v 'Picked up' | tr -d '\\r\\n' || echo '1.0.0'",
-                        returnStdout: true
-                    ).trim()
+                    //def baseVersion = sh(
+                      //  script: "JAVA_TOOL_OPTIONS='' mvn help:evaluate -Dexpression=project.version -q -DforceStdout 2>/dev/null | grep -v 'Picked up' | tr -d '\\r\\n' || echo '1.0.0'",
+                       // returnStdout: true
+                    //).trim()
+
+                    def pomContent = readFile('pom.xml')
+                    def matcher = pomContent =~ /<version>(.*?)<\/version>/
+                    def baseVersion = matcher ? matcher[0][1].trim() : '1.0.0'
 
                     env.APP_VERSION = "${(baseVersion && baseVersion != 'null' && baseVersion != '') ? baseVersion : '1.0.0'}-${env.BUILD_NUMBER}"
                     echo "Versión calculada para el artefacto: ${env.APP_VERSION}"
@@ -197,20 +204,6 @@ pipeline {
              }
             }
 
-
-        stage('7. Version & Tagging') {
-            steps {
-                script {
-                    echo "Etiquetando versión de integración: v${env.APP_VERSION}"
-                    withCredentials([usernamePassword(credentialsId: "${env.GIT_CREDENTIALS}", usernameVariable: 'GIT_USER', passwordVariable: 'GIT_TOKEN')]) {
-                        sh 'git config user.email "jenkins@ci.com"'
-                        sh 'git config user.name "Jenkins CI"'
-                        sh 'git tag -a "v' + env.APP_VERSION + '" -m "Build de integración automática #' + env.BUILD_NUMBER + '" || true'
-                    }
-                }
-            }
-        }
-
          stage('7. Build Image & Publish to Quay') {
             steps {
                 script {
@@ -254,13 +247,10 @@ pipeline {
                                     --push-secret="${QUAY_SECRET_NAME}" \
                                     -n ${BUILD_NAMESPACE}
                             else
-                                echo "BuildConfig existente. Actualizando la imagen destino a: ${IMAGE_REF}" 
-                                    sh """ 
-                                    oc patch buildconfig/${APP_NAME}-builder \
-                                    --patch '{"spec":{"output":{"to":{"name":"${IMAGE_REF}"}}}}' \
-                                    --namespace ${BUILD_NAMESPACE}  
-                                    """
-                                
+                                echo "BuildConfig existente. Actualizando la imagen destino a: ${IMAGE_REF}"
+                                oc patch buildconfig/${APP_NAME}-builder \
+                                    --patch '{"spec":{"output":{"to":{"name":"'${IMAGE_REF}'"}}}}' \
+                                    --namespace ${BUILD_NAMESPACE}
                             fi
  
                             # 3. Enviar el contexto del directorio actual para construir la imagen y subirla a Quay
@@ -321,13 +311,10 @@ pipeline {
         stage('13. Remove Registry Repository Tags') {
             steps {
                 script {
-                    sh "podman rmi ${env.QUAY_REGISTRY}:${env.DEPLOY_ENV.toLowerCase()}-${env.BUILD_NUMBER} || true"
-                    sh "podman image prune -f --filter 'until=24h' || true"
+                    echo "Construcción gestionada por OpenShift BuildConfig. Omitiendo limpieza local de Podman."
                 }
             }
         }
-
-    }
 
     post {
         always {
