@@ -208,7 +208,7 @@ pipeline {
                 script {
                     echo "Build número: ${env.BUILD_NUMBER}"
                     env.IMAGE_REF = "${env.QUAY_REGISTRY}:${env.DEPLOY_ENV.toLowerCase()}-${env.BUILD_NUMBER}"
-                    
+
                     echo "Iniciando compilación en OpenShift y Push hacia Quay: ${env.IMAGE_REF}"
 
                     withCredentials([usernamePassword(
@@ -216,36 +216,36 @@ pipeline {
                         usernameVariable: 'OC_USER',
                         passwordVariable: 'OC_PASSWORD'
                     )]) {
-                        sh '''
+                        sh """
                             set +x
                             # 1. Autenticarse en OpenShift y seleccionar/crear el proyecto
-                            oc login "$OPENSHIFT_API" -u "$OC_USER" -p "$OC_PASSWORD" --insecure-skip-tls-verify=false
-                            oc project ''' + env.BUILD_NAMESPACE + ''' || oc new-project ''' + env.BUILD_NAMESPACE + '''
- 
+                            oc login "${env.OPENSHIFT_API}" -u "\$OC_USER" -p "\$OC_PASSWORD" --insecure-skip-tls-verify=false
+                            oc project "${env.BUILD_NAMESPACE}" || oc new-project "${env.BUILD_NAMESPACE}"
+
                             # 2. Crear el BuildConfig tipo Docker si no existe, asignando el push-secret
-                            if ! oc get buildconfig "${APP_NAME}-builder" -n ${BUILD_NAMESPACE} >/dev/null 2>&1; then
+                            if ! oc get buildconfig "${env.APP_NAME}-builder" -n "${env.BUILD_NAMESPACE}" >/dev/null 2>&1; then
                                 echo "Creando nuevo BuildConfig para ${env.APP_NAME}..."
                                 oc new-build \
-                                    --name="${APP_NAME}-builder" \
+                                    --name="${env.APP_NAME}-builder" \
                                     --strategy=docker \
                                     --binary \
                                     --to-docker=true \
-                                    --to="${IMAGE_REF}" \
-                                    --push-secret="${QUAY_SECRET_NAME}" \
-                                    -n ${BUILD_NAMESPACE}
+                                    --to="${env.IMAGE_REF}" \
+                                    --push-secret="${env.QUAY_SECRET_NAME}" \
+                                    -n "${env.BUILD_NAMESPACE}"
                             else
-                                echo "BuildConfig existente. Actualizando la imagen destino a: ${IMAGE_REF}"
-                                oc patch buildconfig/${APP_NAME}-builder \
-                                    --patch '{"spec":{"output":{"to":{"name":"'${IMAGE_REF}'"}}}}' \
-                                    --namespace ${BUILD_NAMESPACE}
+                                echo "BuildConfig existente. Actualizando la imagen destino a: ${env.IMAGE_REF}"
+                                oc patch buildconfig/${env.APP_NAME}-builder \
+                                    --patch '{"spec":{"output":{"to":{"name":"${env.IMAGE_REF}"}}}}' \
+                                    -n "${env.BUILD_NAMESPACE}"
                             fi
- 
-                            # 3. Enviar el contexto del directorio actual para construir la imagen y subirla a Quay
-                            oc start-build ${APP_NAME}-builder --from-dir=. --follow -n ${BUILD_NAMESPACE}
-                        '''
+
+                            # 3. Enviar contexto actual y construir imagen en el clúster
+                            oc start-build "${env.APP_NAME}-builder" --from-dir=. --follow -n "${env.BUILD_NAMESPACE}"
+                        """
                     }
- 
-                    echo "Imagen construida y publicada exitosamente en Quay: ${IMAGE_REF}"
+
+                    echo "Imagen construida y publicada exitosamente en Quay: ${env.IMAGE_REF}"
                 }
             }
         }
