@@ -293,7 +293,7 @@ pipeline {
                     def targetNamespace = "${params.APLICATIVO.toLowerCase()}-${env.DEPLOY_ENV.toLowerCase()}"
                     echo "Desplegando en OpenShift (${env.OPENSHIFT_API}) - Namespace: ${targetNamespace}"
 
-                    withCredentials([string(credentialsId: 'usuario-generico-quarkus-game', variable: 'OC_USER')]) {
+                    withCredentials([string(credentialsId: 'usuario-generico', variable: 'OC_USER')]) {
                         sh 'oc login ' + env.OPENSHIFT_API + ' --token="$OC_USER" --insecure-skip-tls-verify=false'
                         sh 'oc project ' + targetNamespace + ' || oc new-project ' + targetNamespace
                         sh 'oc set image deployment/' + env.APP_NAME + ' ' + env.APP_NAME + '="' + env.IMAGE_REF + '" -n ' + targetNamespace + ' || oc create deployment ' + env.APP_NAME + ' --image="' + env.IMAGE_REF + '" -n ' + targetNamespace
