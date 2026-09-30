@@ -312,13 +312,7 @@ pipeline {
                             # Vincular secreto de lectura de Quay a la ServiceAccount default
                             oc secrets link default "${env.QUAY_SECRET_NAME}" --for=pull -n "${targetNamespace}" || true
 
-                            oc set image deployment/${env.APP_NAME} *="${env.IMAGE_REF}" -n "${targetNamespace}" || oc create deployment "${env.APP_NAME}" --image="${env.IMAGE_REF}" -n "${targetNamespace}"
-                           
-                        # 1. Establecer límites y peticiones (ejemplo: 500Mi de RAM y 220m de CPU)
-                                oc set resources deployment/${env.APP_NAME} \
-                                  --limits=cpu=220m,memory=500Mi \
-                                  --requests=cpu=220m,memory=500Mi \
-                                  -n "${targetNamespace}"
+oc create deployment ${env.APP_NAME} --image="${env.IMAGE_REF}" -n "${targetNamespace}") && oc set resources deployment/${env.APP_NAME} --requests="cpu=220m,memory=500Mi" --limits="cpu=220m,memory=500Mi" -n "${targetNamespace}"
                         
                         oc rollout status deployment/${env.APP_NAME} -n "${targetNamespace}" --timeout=5m
                                                     """
