@@ -313,8 +313,7 @@ pipeline {
                                 -p "\$OC_PASSWORD" \
                                 --insecure-skip-tls-verify=false
                         
-                            oc project "${targetNamespace}" || \
-                                oc new-project "${targetNamespace}"
+                            oc project "${targetNamespace}" || oc new-project "${targetNamespace}"
                         
                             # Vincular secreto de lectura de Quay a la ServiceAccount default
                             oc secrets link default "${env.QUAY_SECRET_NAME}" \
