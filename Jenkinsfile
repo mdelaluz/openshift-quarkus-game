@@ -307,12 +307,13 @@ pipeline {
                         sh """
                             set +x
                             oc login "${env.OPENSHIFT_API}" -u "\$OC_USER" -p "\$OC_PASSWORD" --insecure-skip-tls-verify=false
-                            if oc get project ${targetNamespace} > /dev/null 2>&1; then
+                            
+                            if oc get project "${targetNamespace}" > /dev/null 2>&1; then
                                 echo "Cambiando al proyecto existente: ${targetNamespace}"
-                                oc project ${targetNamespace}
+                                oc project "${targetNamespace}"
                             else
                                 echo "El proyecto no existe. Creando: ${targetNamespace}"
-                                oc new-project ${targetNamespace}
+                                oc new-project "${targetNamespace}"
                             fi
                             
                             # Vincular secreto de lectura de Quay a la ServiceAccount default
