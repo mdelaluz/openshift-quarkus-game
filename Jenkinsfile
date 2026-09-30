@@ -310,11 +310,11 @@ pipeline {
                             oc login "${env.OPENSHIFT_API}" -u "\$OC_USER" -p "\$OC_PASSWORD" --insecure-skip-tls-verify=false
                             echo "Login a openshift existosamente"
                              
-                            if 
+                            if
                                 oc get project "${targetNamespace}" > /dev/null 2>&1; then
                                 echo "El proyecto ${targetNamespace} ya existe, seleccionándolo..."
                                 oc project "${targetNamespace}"
-                                else
+                            else
                                 echo "El proyecto ${targetNamespace} no existe, creándolo..."
                                 oc new-project "${targetNamespace}"
                             fi
