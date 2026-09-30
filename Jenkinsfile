@@ -291,6 +291,7 @@ pipeline {
                 }
             }
         }
+    }
 
     post {
         always {
@@ -303,4 +304,3 @@ pipeline {
             echo "Pipeline ${env.APP_NAME} fallido. Revisa los logs."
         }
     }
-}
