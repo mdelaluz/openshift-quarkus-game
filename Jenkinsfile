@@ -237,23 +237,23 @@ pipeline {
                             oc set build-secret --push buildconfig/"${env.APP_NAME}-builder" "${env.QUAY_SECRET_NAME}" -n "${env.BUILD_NAMESPACE}"
  
 
-    oc patch buildconfig "${env.APP_NAME}-builder" \
-    --type=merge \
-    --patch='{
-        "spec": {
-            "resources": {
-                "requests": {
-                    "cpu": "500m",
-                    "memory": "1Gi"
-                },
-                "limits": {
-                    "cpu": "1",
-                    "memory": "2Gi"
-                }
-            }
-        }
-    }' \
-    -n "${env.BUILD_NAMESPACE}"
+                            oc patch buildconfig "${env.APP_NAME}-builder" \
+                            --type=merge \
+                            --patch='{
+                                "spec": {
+                                    "resources": {
+                                        "requests": {
+                                            "cpu": "500m",
+                                            "memory": "1Gi"
+                                        },
+                                        "limits": {
+                                            "cpu": "1",
+                                            "memory": "2Gi"
+                                        }
+                                    }
+                                }
+                            }' \
+                            -n "${env.BUILD_NAMESPACE}"
                                 
 
                             # 4. Enviar contexto actual y construir imagen en el clúster
@@ -282,8 +282,6 @@ pipeline {
             }
         }
         
-       
-
         stage('13. Remove Registry Repository Tags') {
             steps {
                 script {
@@ -292,9 +290,8 @@ pipeline {
             }
         }
     }
-
 }
-    post {
+post {
         always {
             deleteDir()
         }
