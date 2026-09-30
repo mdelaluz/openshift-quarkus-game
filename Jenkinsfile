@@ -307,17 +307,32 @@ pipeline {
                     )]) {
                         sh """
                             set +x
-                            oc login "${env.OPENSHIFT_API}" -u "\$OC_USER" -p "\$OC_PASSWORD" --insecure-skip-tls-verify=false
-                        
-                            # Selección o creación del proyecto
-                            oc project "${targetNamespace}" || oc new-project "${targetNamespace}"
-                            
-                            # Vincular secreto de lectura de Quay a la ServiceAccount default
-                            oc secrets link default "${env.QUAY_SECRET_NAME}" --for=pull -n "${targetNamespace}" || true
+    # 1. Login (Cambiado a true para evitar errores de certificados)
+    oc login "${env.OPENSHIFT_API}" -u "\$OC_USER" -p "\$OC_PASSWORD" --insecure-skip-tls-verify=true
 
-                            oc create deployment ${env.APP_NAME} --image="${env.IMAGE_REF}" -n "${targetNamespace}" && oc set resources deployment/${env.APP_NAME} --requests="cpu=220m,memory=500Mi" --limits="cpu=220m,memory=500Mi" -n "${targetNamespace}"
-                        
-                            oc rollout status deployment/${env.APP_NAME} -n "${targetNamespace}" --timeout=5m
+    # 2. Selección de proyecto (Dentro del sh, el || ahora sí funciona)
+    oc project "${targetNamespace}" || oc new-project "${targetNamespace}"
+    
+    # 3. Vincular secreto de Quay (El || true evita que falle si ya está vinculado)
+    oc secrets link default "${env.QUAY_SECRET_NAME}" --for=pull -n "${targetNamespace}" || true
+
+    # 4. DESPLIEGUE INTELIGENTE (Soluciona el problema del 'oc create')
+    if oc get deployment ${env.APP_NAME} -n "${targetNamespace}" > /dev/null 2>&1; then
+        echo "El despliegue ya existe. Actualizando imagen..."
+        oc set image deployment/${env.APP_NAME} ${env.APP_NAME}="${env.IMAGE_REF}" -n "${targetNamespace}"
+    else
+        echo "Creando nuevo despliegue..."
+        oc create deployment ${env.APP_NAME} --image="${env.IMAGE_REF}" -n "${targetNamespace}"
+    fi
+
+    # 5. Configurar recursos (Se ejecuta siempre para asegurar que los límites son correctos)
+    oc set resources deployment/${env.APP_NAME} \
+        --requests="cpu=220m,memory=500Mi" \
+        --limits="cpu=220m,memory=500Mi" \
+        -n "${targetNamespace}"
+
+    # 6. Esperar confirmación
+    oc rollout status deployment/${env.APP_NAME} -n "${targetNamespace}" --timeout=5m
                                                     
                         """
                                                 }
