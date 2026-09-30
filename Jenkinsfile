@@ -307,15 +307,22 @@ pipeline {
                         sh """
                             set +x
                             oc login "${env.OPENSHIFT_API}" -u "\$OC_USER" -p "\$OC_PASSWORD" --insecure-skip-tls-verify=false
-                            oc project "${targetNamespace}" || oc new-project "${targetNamespace}"
+                            if oc get project ${targetNamespace} > /dev/null 2>&1; then
+                                echo "Cambiando al proyecto existente: ${targetNamespace}"
+                                oc project ${targetNamespace}
+                            else
+                                echo "El proyecto no existe. Creando: ${targetNamespace}"
+                                oc new-project ${targetNamespace}
+                            fi
                             
                             # Vincular secreto de lectura de Quay a la ServiceAccount default
                             oc secrets link default "${env.QUAY_SECRET_NAME}" --for=pull -n "${targetNamespace}" || true
 
-oc create deployment ${env.APP_NAME} --image="${env.IMAGE_REF}" -n "${targetNamespace}") && oc set resources deployment/${env.APP_NAME} --requests="cpu=220m,memory=500Mi" --limits="cpu=220m,memory=500Mi" -n "${targetNamespace}"
+                            oc create deployment ${env.APP_NAME} --image="${env.IMAGE_REF}" -n "${targetNamespace}") && oc set resources deployment/${env.APP_NAME} --requests="cpu=220m,memory=500Mi" --limits="cpu=220m,memory=500Mi" -n "${targetNamespace}"
                         
-                        oc rollout status deployment/${env.APP_NAME} -n "${targetNamespace}" --timeout=5m
-                                                    """
+                            oc rollout status deployment/${env.APP_NAME} -n "${targetNamespace}" --timeout=5m
+                                                    
+                        """
                                                 }
                                             }
                                         }
