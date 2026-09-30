@@ -308,7 +308,8 @@ pipeline {
                         sh """
                             set +x
                             oc login "${env.OPENSHIFT_API}" -u "\$OC_USER" -p "\$OC_PASSWORD" --insecure-skip-tls-verify=false
-                            echo 'Login a openshift existosamente'
+                        
+                            # Selección o creación del proyecto
                             oc project "${targetNamespace}" || oc new-project "${targetNamespace}"
                             
                             # Vincular secreto de lectura de Quay a la ServiceAccount default
