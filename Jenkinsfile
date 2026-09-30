@@ -293,6 +293,7 @@ pipeline {
         }
     }
 
+}
     post {
         always {
             deleteDir()
@@ -304,3 +305,4 @@ pipeline {
             echo "Pipeline ${env.APP_NAME} fallido. Revisa los logs."
         }
     }
+}
