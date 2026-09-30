@@ -283,6 +283,7 @@ pipeline {
         }
         
         stage('12. Deploy DEV') {
+        echo "Inicializando Stage 12"
             when {
                 allOf {
                     expression {
@@ -307,13 +308,15 @@ pipeline {
                         sh """
                             set +x
                             oc login "${env.OPENSHIFT_API}" -u "\$OC_USER" -p "\$OC_PASSWORD" --insecure-skip-tls-verify=false
-                            
-                             if oc get project "${targetNamespace}" > /dev/null 2>&1; then
-                            echo "El proyecto ${targetNamespace} ya existe, seleccionándolo..."
-                            oc project "${targetNamespace}"
-                            else
-                            echo "El proyecto ${targetNamespace} no existe, creándolo..."
-                            oc new-project "${targetNamespace}"
+                            echo "Login a openshift existosamente"
+                             
+                            if 
+                                oc get project "${targetNamespace}" > /dev/null 2>&1; then
+                                echo "El proyecto ${targetNamespace} ya existe, seleccionándolo..."
+                                oc project "${targetNamespace}"
+                                else
+                                echo "El proyecto ${targetNamespace} no existe, creándolo..."
+                                oc new-project "${targetNamespace}"
                             fi
                             
                             # Vincular secreto de lectura de Quay a la ServiceAccount default
