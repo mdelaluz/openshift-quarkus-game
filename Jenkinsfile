@@ -322,7 +322,7 @@ pipeline {
                             # Vincular secreto de lectura de Quay a la ServiceAccount default
                             oc secrets link default "${env.QUAY_SECRET_NAME}" --for=pull -n "${targetNamespace}" || true
 
-                            oc create deployment ${env.APP_NAME} --image="${env.IMAGE_REF}" -n "${targetNamespace}") && oc set resources deployment/${env.APP_NAME} --requests="cpu=220m,memory=500Mi" --limits="cpu=220m,memory=500Mi" -n "${targetNamespace}"
+                            oc create deployment ${env.APP_NAME} --image="${env.IMAGE_REF}" -n "${targetNamespace}" && oc set resources deployment/${env.APP_NAME} --requests="cpu=220m,memory=500Mi" --limits="cpu=220m,memory=500Mi" -n "${targetNamespace}"
                         
                             oc rollout status deployment/${env.APP_NAME} -n "${targetNamespace}" --timeout=5m
                                                     
