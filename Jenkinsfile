@@ -233,6 +233,10 @@ pipeline {
                                 --push-secret="${env.QUAY_SECRET_NAME}" \
                                 -n "${env.BUILD_NAMESPACE}"
 
+                                   # 5.1 Publicacion de Build Config de Imagen resultante
+                            oc set build-secret --push buildconfig/d02-sicatel-authentication-api-builder "${env.QUAY_SECRET_NAME}" -n "${env.BUILD_NAMESPACE}"
+ 
+
     oc patch buildconfig "${env.APP_NAME}-builder" \
     --type=merge \
     --patch='{
