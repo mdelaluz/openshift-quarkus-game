@@ -16,12 +16,16 @@
 
 pipeline {
     agent any
-
+    // =========================================================================
+    // CONFIGURACIÓN DE HERRAMIENTAS
+    // =========================================================================
     tools {
             maven "${mavenTool}"
             jdk   "${jdkTool}"
         }
-
+    // =========================================================================
+    // PARÁMETROS DE ENTRADA DEL PIPELINE
+    // =========================================================================
 
     parameters {
         choice(
@@ -301,7 +305,7 @@ pipeline {
             }
         }
         
-        stage('13. Deploy in Openshift') {
+        stage('12. Deploy in Openshift') {
             when {
                     allOf {
                         expression {
@@ -393,12 +397,12 @@ pipeline {
                     }
                 }
             }
-        } //cierre de stage 13
+        } //cierre de stage 12
 
       // =========================================================================
-        // STAGE 14: VALIDACIÓN DEV Y DEPURACIÓN DE TAGS EN QUAY
+        // STAGE 13: VALIDACIÓN DEV Y DEPURACIÓN DE TAGS EN QUAY
         // =========================================================================
-        stage('14. Validate DEV & Tag Cleanup') {
+        stage('13. Validate DEV & Tag Cleanup') {
             when {
                 allOf {
                     expression {
@@ -448,6 +452,7 @@ pipeline {
                             fi
 
                             # Crear archivos temporales protegidos para curl y el procesamiento de tags
+                            echo "Iniciando creación de archivos temporales protegidos para curl"
                             CURL_CONFIG=\$(mktemp)
                             TAGS_RESPONSE=\$(mktemp)
                             TAGS_SORTED=\$(mktemp)
