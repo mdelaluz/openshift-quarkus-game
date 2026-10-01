@@ -484,6 +484,7 @@ pipeline {
                             }
                         }
                     }
+                  }
                 }  //cierre stage14
         
     }  //cierre de pipeline
