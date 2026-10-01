@@ -415,38 +415,29 @@ pipeline {
             def repo       = "${APP_NAME}"
 
             sh """
-                # 1. Extraer el token (password) desde el secreto docker-registry de OpenShift
-                # Explicación: Decodifica el .dockerconfigjson, busca la URL de Quay y extrae el password
-                QUAY_TOKEN=\$(oc get secret ${secretName} -n ${namespace} -o jsonpath='{.data.\\.dockerconfigjson}' | base64 -d | jq -r '.auths["${quayUrl}"].auth' | base64 -d | cut -d: -f2)
+                    # 1. Obtener lista de tags activos ordenados por fecha
+                    TAGS_JSON=\$(curl -s -X GET \
+                        -H "Authorization: Bearer ${QUAY_TOKEN}" \
+                        "https://${quayUrl}/api/v1/repository/${org}/${repo}/tag/?onlyActiveTags=true")
 
-                if [ -z "\$QUAY_TOKEN" ]; then
-                    echo "ERROR: No se pudo obtener el token del secreto ${secretName} en ${namespace}"
-                    exit 1
-                fi
+                    # 2. Extraer los nombres de los tags a eliminar (todos menos los 2 más nuevos)
+                    # Explicación del comando jq:
+                    # - Ordena los tags por 'start_ts' (timestamp de inicio) de forma descendente
+                    # - Salta los primeros 2 ([2:])
+                    # - Extrae el nombre (.name)
+                    TAGS_TO_DELETE=\$(echo \$TAGS_JSON | jq -r '.tags | sort_by(.start_ts) | reverse | .[2:] | .[].name')
 
-                echo "Conexión exitosa. Buscando imágenes en el repositorio: ${org}/${repo}"
-
-                # 2. Obtener la lista de tags ordenados por fecha de creación (timestamp)
-                TAGS_JSON=\$(curl -s -X GET \
-                    -H "Authorization: Bearer \$QUAY_TOKEN" \
-                    "https://${quayUrl}/api/v1/repository/${org}/${repo}/tag/?onlyActiveTags=true")
-
-                # 3. Identificar los tags a eliminar (todos excepto los 2 más nuevos)
-                # Ordena por 'start_ts' (timestamp), invierte el orden y salta los primeros 2
-                TAGS_TO_DELETE=\$(echo \$TAGS_JSON | jq -r '.tags | sort_by(.start_ts) | reverse | .[2:] | .[].name')
-
-                if [ -z "\$TAGS_TO_DELETE" ]; then
-                    echo "No se encontraron imágenes viejas. Se conservan las 2 más recientes."
-                else
-                    for TAG in \$TAGS_TO_DELETE; do
-                        echo "Eliminando tag obsoleto: \$TAG"
-                        curl -s -L -X DELETE \
-                            -H "Authorization: Bearer \$QUAY_TOKEN" \
-                            "https://${quayUrl}/api/v1/repository/${org}/${repo}/tag/\$TAG"
-                    done
-                    echo "Limpieza completada."
-                fi
-            """
+                    if [ -z "\$TAGS_TO_DELETE" ]; then
+                        echo "No hay imágenes viejas para eliminar. Se conservan las 2 actuales."
+                    else
+                        for TAG in \$TAGS_TO_DELETE; do
+                            echo "Eliminando tag viejo: \$TAG"
+                            curl -s -X DELETE \
+                                -H "Authorization: Bearer ${QUAY_TOKEN}" \
+                                "https://${quayUrl}/api/v1/repository/${org}/${repo}/tag/\$TAG"
+                        done
+                    fi
+                """
         }
     }
 } //Cierre stage
