@@ -199,71 +199,6 @@ pipeline {
             }
         }
 
-         stage('7. Build Image & Publish to Quay') {
-            steps {
-                script {
-                    echo "Build número: ${env.BUILD_NUMBER}"
-                    def appEnvLower = env.DEPLOY_ENV ? env.DEPLOY_ENV.toLowerCase() : 'dev'
-                    def computedImageRef = "${env.QUAY_REGISTRY}:${appEnvLower}-${env.BUILD_NUMBER}"
-                    env.IMAGE_REF = computedImageRef
-
-                    echo "Iniciando compilación en OpenShift y Push hacia Quay: ${computedImageRef}"
-
-                    withCredentials([usernamePassword(
-                        credentialsId   : "${env.JENKINS_OC_CREDS}",
-                        usernameVariable: 'OC_USER',
-                        passwordVariable: 'OC_PASSWORD'
-                    )]) {
-                        sh """
-                            set +x
-                            # 1. Autenticarse en OpenShift y seleccionar/crear el proyecto
-                            oc login "${env.OPENSHIFT_API}" -u "\$OC_USER" -p "\$OC_PASSWORD" --insecure-skip-tls-verify=false
-                            oc project "${env.BUILD_NAMESPACE}" || oc new-project "${env.BUILD_NAMESPACE}"
-
-                            # 2. Eliminar BuildConfig previo corrupto con destino 'null'
-                            oc delete buildconfig "${env.APP_NAME}-builder" -n "${env.BUILD_NAMESPACE}" --ignore-not-found
-
-                            # 3. Crear BuildConfig apuntando explícitamente a Quay
-                            oc new-build \
-                                --name="${env.APP_NAME}-builder" \
-                                --strategy=docker \
-                                --binary \
-                                --to-docker=true \
-                                --to="${computedImageRef}" \
-                                --push-secret="${env.QUAY_SECRET_NAME}" \
-                                -n "${env.BUILD_NAMESPACE}"
-
-                                   # 5.1 Publicacion de Build Config de Imagen resultante
-                            oc set build-secret --push buildconfig/"${env.APP_NAME}-builder" "${env.QUAY_SECRET_NAME}" -n "${env.BUILD_NAMESPACE}"
- 
-
-                            oc patch buildconfig "${env.APP_NAME}-builder" \
-                            --type=merge \
-                            --patch='{
-                                "spec": {
-                                    "resources": {
-                                        "requests": {
-                                            "cpu": "500m",
-                                            "memory": "1Gi"
-                                        },
-                                        "limits": {
-                                            "cpu": "1",
-                                            "memory": "2Gi"
-                                        }
-                                    }
-                                }
-                            }' \
-                            -n "${env.BUILD_NAMESPACE}"
-                                
-
-                            # 4. Enviar contexto actual y construir imagen en el clúster
-                            oc start-build "${env.APP_NAME}-builder" --from-dir=. --follow -n "${env.BUILD_NAMESPACE}"
-
-                    echo "Imagen construida y publicada exitosamente en Quay: ${env.IMAGE_REF}"
-                }
-            }
-        }
-
         stage('9. Generate SBOM & Scan Image') {
             steps {
                 echo 'SBOM y escaneo de imagen pendientes de implementación'
@@ -290,7 +225,6 @@ pipeline {
             }
         }
     }
-}
 post {
         always {
             deleteDir()
