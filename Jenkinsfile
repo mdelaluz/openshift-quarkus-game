@@ -301,10 +301,96 @@ pipeline {
             }
         }
         
-        stage('13. Remove Registry Repository Tags') {
-            steps {
-                script {
-                    echo "Construcción gestionada por OpenShift BuildConfig. Omitiendo limpieza local de Podman."
+        stage('13. Deploy in Openshift, Push & Remove Registry Repository Tags') {
+            when {
+                    allOf {
+                        expression {
+                            params.RAMA_OVERRIDE?.trim() ? true : env.RAMA in ['develop', 'main']
+                        }
+                        expression {
+                            (params.APLICATIVO == 'SICATEL' && params.AMBIENTE in ['DEV', 'QA']) ||
+                            (params.APLICATIVO == 'KIOSCO'  && params.AMBIENTE == 'PREPROD')
+                        }
+                    }
+                }
+                steps {
+                    script {
+                        def targetNamespace = "${params.APLICATIVO.toLowerCase()}-${env.DEPLOY_ENV.toLowerCase()}"
+                        echo "Desplegando en OpenShift (${env.OPENSHIFT_API}) - Namespace: ${targetNamespace}"
+
+                    withCredentials([usernamePassword(
+                        credentialsId   : 'usuario-generico-sicatel',
+                        usernameVariable: 'OC_USER',
+                        passwordVariable: 'OC_PASSWORD'
+                    )]) {
+                        sh """
+                            set +x
+                            oc login "${env.OPENSHIFT_API}" \
+                                -u "\$OC_USER" \
+                                -p "\$OC_PASSWORD" \
+                                --insecure-skip-tls-verify=false
+
+                            oc project "${targetNamespace}" || \
+                                oc new-project "${targetNamespace}"
+
+                            # Vincular secreto de lectura de Quay a la ServiceAccount default
+                            oc secrets link default "${env.QUAY_SECRET_NAME}" \
+                                --for=pull \
+                                -n "${targetNamespace}" || true
+
+                            if oc get deployment "${env.APP_NAME}" \
+                                -n "${targetNamespace}" > /dev/null 2>&1; then
+
+                                echo "El Deployment ${env.APP_NAME} ya existe; actualizando imagen y recursos..."
+
+                                oc patch deployment/${env.APP_NAME} \
+                                    --type=json \
+                                    --patch='[
+                                        {
+                                            "op": "replace",
+                                            "path": "/spec/template/spec/containers/0/image",
+                                            "value": "${env.IMAGE_REF}"
+                                        },
+                                        {
+                                            "op": "add",
+                                            "path": "/spec/template/spec/containers/0/resources",
+                                            "value": {
+                                                "requests": {
+                                                    "cpu": "220m",
+                                                    "memory": "500Mi"
+                                                },
+                                                "limits": {
+                                                    "cpu": "220m",
+                                                    "memory": "500Mi"
+                                                }
+                                            }
+                                        }
+                                    ]' \
+                                    -n "${targetNamespace}"
+
+                            else
+                                echo "El Deployment ${env.APP_NAME} no existe; creándolo..."
+
+                                oc create deployment "${env.APP_NAME}" \
+                                    --image="${env.IMAGE_REF}" \
+                                    --dry-run=client \
+                                    -o yaml \
+                                    -n "${targetNamespace}" | \
+                                oc set resources \
+                                    --local \
+                                    -f - \
+                                    --requests="cpu=220m,memory=500Mi" \
+                                    --limits="cpu=220m,memory=500Mi" \
+                                    -o yaml | \
+                                oc create -f - \
+                                    -n "${targetNamespace}"
+                            fi
+
+                            oc rollout status deployment/${env.APP_NAME} \
+                                -n "${targetNamespace}" \
+                                --timeout=5m
+                        """
+                    }
                 }
             }
         } //cierre de stage 13
