@@ -207,28 +207,6 @@ pipeline {
                     def computedImageRef = "${env.QUAY_REGISTRY}:${appEnvLower}-${env.BUILD_NUMBER}"
                     env.IMAGE_REF = computedImageRef
 
-                    // 1. Preparar carpeta temporal y recolectar automáticamente todos los assets
-                    sh """
-                        # Crear carpeta de staging para la construcción
-                        mkdir -p container-build-assets
-
-                        # Buscar y copiar los archivos de configuración desde cualquier subcarpeta de resources/
-                        find resources/ -name "server.xml" -exec cp {} container-build-assets/ \\;
-                        find resources/ -name "init-logs.sh" -exec cp {} container-build-assets/ \\;
-                        find resources/ -name "validate-startup.sh" -exec cp {} container-build-assets/ \\;
-
-                        # Buscar y copiar el archivo .ear generado en la compilación
-                        find . -path "*/target/*.ear" -exec cp {} container-build-assets/ \\;
-
-                        # Localizar la plantilla Dockerfile y reemplazar las variables
-                        DOCKERFILE_SRC=\$(find resources/ -name "Dockerfile" | head -n 1)
-
-                        sed -e 's|__BASE_IMAGE__|${env.DOCKER_BASE_IMAGE}|g' \
-                            -e 's|__ASSET_DIR__|container-build-assets|g' \
-                            -e 's|__EAR_FILE__|*.ear|g' \
-                            "\$DOCKERFILE_SRC" > Dockerfile
-                    """
-
                     echo "Iniciando compilación en OpenShift y Push hacia Quay: ${computedImageRef}"
 
                     withCredentials([usernamePassword(
