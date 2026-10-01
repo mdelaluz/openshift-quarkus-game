@@ -301,7 +301,7 @@ pipeline {
             }
         }
         
-        stage('13. Deploy in Openshift, Push & Remove Registry Repository Tags') {
+        stage('13. Deploy in Openshift') {
             when {
                     allOf {
                         expression {
@@ -394,6 +394,97 @@ pipeline {
                 }
             }
         } //cierre de stage 13
+
+         stage('12. Validate DEV & Tag Cleanup') {
+                when {
+                    allOf {
+                        expression {
+                            params.RAMA_OVERRIDE?.trim() ? true : env.RAMA in ['develop', 'main']
+                        }
+                        expression {
+                            (params.APLICATIVO == 'SICATEL' && params.AMBIENTE in ['DEV', 'QA']) ||
+                            (params.APLICATIVO == 'KIOSCO'  && params.AMBIENTE == 'PREPROD')
+                        }
+                    }
+                }
+                steps {
+                    script {
+                        def targetNamespace = "${params.APLICATIVO.toLowerCase()}-${env.DEPLOY_ENV.toLowerCase()}"
+                        def appEnvLower = env.DEPLOY_ENV ? env.DEPLOY_ENV.toLowerCase() : 'dev'
+
+                        withCredentials([usernamePassword(
+                            credentialsId   : 'usuario-generico-sicatel',
+                            usernameVariable: 'OC_USER',
+                            passwordVariable: 'OC_PASSWORD'
+                        )]) {
+                            sh """
+                                set +x
+                                oc login "${env.OPENSHIFT_API}" \
+                                    -u "\$OC_USER" \
+                                    -p "\$OC_PASSWORD" \
+                                    --insecure-skip-tls-verify=false
+
+                                AVAILABLE_REPLICAS=\$(oc get deployment "${env.APP_NAME}" \
+                                    -n "${targetNamespace}" \
+                                    -o jsonpath='{.status.availableReplicas}')
+
+                                if [ "\${AVAILABLE_REPLICAS:-0}" -lt 1 ]; then
+                                    echo "ERROR: El Deployment ${env.APP_NAME} no tiene réplicas disponibles."
+                                    exit 1
+                                fi
+
+                                DEPLOYED_IMAGE=\$(oc get deployment "${env.APP_NAME}" \
+                                    -n "${targetNamespace}" \
+                                    -o jsonpath='{.spec.template.spec.containers[0].image}')
+
+                                if [ "\$DEPLOYED_IMAGE" != "${env.IMAGE_REF}" ]; then
+                                    echo "ERROR: La imagen desplegada no corresponde al build actual."
+                                    echo "Esperada: ${env.IMAGE_REF}"
+                                    echo "Desplegada: \$DEPLOYED_IMAGE"
+                                    exit 1
+                                fi
+
+                                DEPLOYED_IMAGE_ID=\$(oc get pods \
+                                    -l "app=${env.APP_NAME}" \
+                                    --field-selector=status.phase=Running \
+                                    -n "${targetNamespace}" \
+                                    -o jsonpath='{.items[0].status.containerStatuses[0].imageID}')
+
+                                IMAGE_DIGEST=\${DEPLOYED_IMAGE_ID##*@}
+
+                                if [ -z "\$DEPLOYED_IMAGE_ID" ] || [ "\$IMAGE_DIGEST" = "\$DEPLOYED_IMAGE_ID" ]; then
+                                    echo "ERROR: No fue posible obtener el digest de la imagen desplegada."
+                                    exit 1
+                                fi
+
+                                echo "\$IMAGE_DIGEST" > deployed-image-digest.txt
+                                echo "Deployment validado con el digest: \$IMAGE_DIGEST"
+                            """
+                        }
+
+                        if (params.SKIP_TAG_CLEANUP) {
+                            echo 'Depuración de tags omitida mediante SKIP_TAG_CLEANUP.'
+                            echo 'TODO: Configurar la credencial de archivo credenciales-quay-telcel.'
+                        } else {
+                            withCredentials([file(
+                                credentialsId: 'credenciales-quay-telcel',
+                                variable     : 'QUAY_CLEANUP_ADAPTER'
+                            )]) {
+                                sh """
+                                    set +x
+                                    test -s "\$QUAY_CLEANUP_ADAPTER"
+                                    IMAGE_DIGEST=\$(cat deployed-image-digest.txt)
+
+                                    bash "\$QUAY_CLEANUP_ADAPTER" \
+                                        --repository "${env.QUAY_REGISTRY}" \
+                                        --environment "${appEnvLower}" \
+                                        --preserve-digest "\$IMAGE_DIGEST" \
+                                        --preserve-tag "${appEnvLower}-${env.BUILD_NUMBER}"
+                                """
+                            }
+                        }
+                    }
+                }  //cierre stage14
         
     }  //cierre de pipeline
 post {
