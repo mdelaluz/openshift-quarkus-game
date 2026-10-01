@@ -415,36 +415,46 @@ pipeline {
             def repo       = "${APP_NAME}"
 
             sh """
-                # 1. Extracción del token (agregamos una validación extra de base64)
-                RAW_AUTH=\$(oc get secret ${secretName} -n ${namespace} -o jsonpath='{.data.\\.dockerconfigjson}' | base64 -d | jq -r '.auths["${quayUrl}"].auth')
-                QUAY_TOKEN=\$(echo \$RAW_AUTH | base64 -d | cut -d: -f2)
+                # 1. Extracción robusta de credenciales
+                # Extraemos el campo 'auth' completo (que es user:password en base64)
+                AUTH_BASE64=\$(oc get secret ${secretName} -n ${namespace} -o jsonpath='{.data.\\.dockerconfigjson}' | base64 -d | jq -r '.auths["${quayUrl}"].auth')
+                
+                # Decodificamos el par usuario:password
+                USER_PASS=\$(echo \$AUTH_BASE64 | base64 -d)
 
-                if [ -z "\$QUAY_TOKEN" ]; then
-                    echo "ERROR: No se pudo extraer el token del secreto."
+                if [ -z "\$USER_PASS" ]; then
+                    echo "ERROR: No se pudo obtener la credencial del secreto."
                     exit 1
                 fi
 
-                # 2. Obtener tags (agregamos el header X-Requested-With por seguridad)
-                TAGS_JSON=\$(curl -s -X GET \
-                    -H "Authorization: Bearer \$QUAY_TOKEN" \
+                echo "Autenticando como: \${USER_PASS%:*} en el repositorio: ${org}/${repo}"
+
+                # 2. Listar tags usando Basic Auth (más fiable si usas el secreto del registro)
+                # Agregamos el header X-Requested-With para evitar errores de CSRF
+                TAGS_JSON=\$(curl -s -u "\$USER_PASS" \
                     -H "X-Requested-With: XMLHttpRequest" \
                     "https://${quayUrl}/api/v1/repository/${org}/${repo}/tag/?onlyActiveTags=true")
 
-                # 3. Filtrar tags a eliminar
+                # 3. Filtrar los tags más antiguos (todos menos los 2 últimos)
                 TAGS_TO_DELETE=\$(echo \$TAGS_JSON | jq -r '.tags | sort_by(.start_ts) | reverse | .[2:] | .[].name')
 
                 if [ -z "\$TAGS_TO_DELETE" ]; then
-                    echo "Nada que eliminar. Se conservan las 2 más recientes."
+                    echo "No hay nada que borrar. Manteniendo las 2 imágenes más recientes."
                 else
                     for TAG in \$TAGS_TO_DELETE; do
-                        echo "Eliminando tag obsoleto: \$TAG"
-                        # AGREGAMOS EL HEADER X-Requested-With AQUÍ PARA EVITAR EL ERROR CSRF
-                        curl -s -L -X DELETE \
-                            -H "Authorization: Bearer \$QUAY_TOKEN" \
+                        echo "Intentando eliminar tag: \$TAG"
+                        # USAMOS -u PARA BASIC AUTH Y EL HEADER X-Requested-With PARA EL CSRF
+                        STATUS_CODE=\$(curl -s -o /dev/null -w "%{http_code}" -u "\$USER_PASS" \
+                            -X DELETE \
                             -H "X-Requested-With: XMLHttpRequest" \
-                            "https://${quayUrl}/api/v1/repository/${org}/${repo}/tag/\$TAG"
+                            "https://${quayUrl}/api/v1/repository/${org}/${repo}/tag/\$TAG")
+                        
+                        if [ "\$STATUS_CODE" -eq 204 ]; then
+                            echo "Eliminado con éxito (204)."
+                        else
+                            echo "Fallo al eliminar tag \$TAG. Código HTTP: \$STATUS_CODE"
+                        fi
                     done
-                    echo "Limpieza finalizada con éxito."
                 fi
             """
         }
