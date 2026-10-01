@@ -199,6 +199,112 @@ pipeline {
             }
         }
 
+        stage('7. Build Image & Publish to Quay') {
+            steps {
+                script {
+                    echo "Build número: ${env.BUILD_NUMBER}"
+                    def appEnvLower = env.DEPLOY_ENV ? env.DEPLOY_ENV.toLowerCase() : 'dev'
+                    def computedImageRef = "${env.QUAY_REGISTRY}:${appEnvLower}-${env.BUILD_NUMBER}"
+                    env.IMAGE_REF = computedImageRef
+
+                    // 1. Preparar carpeta temporal y recolectar automáticamente todos los assets
+                    sh """
+                        # Crear carpeta de staging para la construcción
+                        mkdir -p container-build-assets
+
+                        # Buscar y copiar los archivos de configuración desde cualquier subcarpeta de resources/
+                        find resources/ -name "server.xml" -exec cp {} container-build-assets/ \\;
+                        find resources/ -name "init-logs.sh" -exec cp {} container-build-assets/ \\;
+                        find resources/ -name "validate-startup.sh" -exec cp {} container-build-assets/ \\;
+
+                        # Buscar y copiar el archivo .ear generado en la compilación
+                        find . -path "*/target/*.ear" -exec cp {} container-build-assets/ \\;
+
+                        # Localizar la plantilla Dockerfile y reemplazar las variables
+                        DOCKERFILE_SRC=\$(find resources/ -name "Dockerfile" | head -n 1)
+
+                        sed -e 's|__BASE_IMAGE__|${env.DOCKER_BASE_IMAGE}|g' \
+                            -e 's|__ASSET_DIR__|container-build-assets|g' \
+                            -e 's|__EAR_FILE__|*.ear|g' \
+                            "\$DOCKERFILE_SRC" > Dockerfile
+                    """
+
+                    echo "Iniciando compilación en OpenShift y Push hacia Quay: ${computedImageRef}"
+
+                    withCredentials([usernamePassword(
+                        credentialsId   : "${env.JENKINS_OC_CREDS}",
+                        usernameVariable: 'OC_USER',
+                        passwordVariable: 'OC_PASSWORD'
+                    )]) {
+                        sh """
+                            set +x
+                            # 2. Validar la credencial Username with password
+                            if [ -z "\$OC_USER" ]; then
+                                echo "ERROR: la credencial ${env.JENKINS_OC_CREDS} no contiene usuario."
+                                exit 1
+                            fi
+
+                            if [ -z "\$OC_PASSWORD" ]; then
+                                echo "ERROR: la credencial ${env.JENKINS_OC_CREDS} no contiene contraseña."
+                                exit 1
+                            fi
+
+                            # 3. Autenticarse en OpenShift con usuario y contraseña
+                            echo "Validando autenticación contra OpenShift..."
+                            oc login \
+                                --server="${env.OPENSHIFT_API}" \
+                                --username="\$OC_USER" \
+                                --password="\$OC_PASSWORD" \
+                                --insecure-skip-tls-verify=false
+
+                            echo "Autenticación correcta como: \$(oc whoami)"
+                            oc project "${env.BUILD_NAMESPACE}" || oc new-project "${env.BUILD_NAMESPACE}"
+
+                            # 4. Eliminar BuildConfig previo
+                            oc delete buildconfig "${env.APP_NAME}-builder" -n "${env.BUILD_NAMESPACE}" --ignore-not-found
+                           
+ 
+                            # 5. Crear el BuildConfig dinámico
+                            oc new-build \
+                                --name="${env.APP_NAME}-builder" \
+                                --strategy=docker \
+                                --binary \
+                                --to-docker=true \
+                                --to="${computedImageRef}" \
+                                --push-secret="${env.QUAY_SECRET_NAME}" \
+                                -n "${env.BUILD_NAMESPACE}"
+                            # 5.1 Publicacion de Build Config de Imagen resultante
+                            oc set build-secret --push buildconfig/"${env.APP_NAME}-builder" "${env.QUAY_SECRET_NAME}" -n "${env.BUILD_NAMESPACE}"
+
+                            # 6. Inyectar recursos (requests/limits) requeridos por la cuota
+                            oc patch buildconfig "${env.APP_NAME}-builder" \
+                                --type=merge \
+                                --patch='{
+                                    "spec": {
+                                        "resources": {
+                                            "requests": {
+                                                "cpu": "360m",
+                                                "memory": "3Gi"
+                                            },
+                                            "limits": {
+                                                "cpu": "4",
+                                                "memory": "4Gi"
+                                            }
+                                        }
+                                    }
+                                }' \
+                                -n "${env.BUILD_NAMESPACE}"
+
+                            # 7. Enviar contexto e iniciar compilación
+                            oc start-build "${env.APP_NAME}-builder" --from-dir=. --follow -n "${env.BUILD_NAMESPACE}"
+                        """
+                    }
+
+                    echo "Imagen construida y publicada exitosamente en Quay: ${env.IMAGE_REF}"
+                }
+            }
+        }
+
         stage('9. Generate SBOM & Scan Image') {
             steps {
                 echo 'SBOM y escaneo de imagen pendientes de implementación'
@@ -223,8 +329,9 @@ pipeline {
                     echo "Construcción gestionada por OpenShift BuildConfig. Omitiendo limpieza local de Podman."
                 }
             }
-        }
-    }
+        } //cierre de stage 13
+        
+    }  //cierre de pipeline
 post {
         always {
             deleteDir()
