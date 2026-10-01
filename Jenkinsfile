@@ -54,7 +54,9 @@ pipeline {
             description  : 'Rama a desplegar (opcional). Si se deja vacío: main'
         )
     }
-
+    // =========================================================================
+    // VARIABLES DE ENTORNO GLOBALES
+    // =========================================================================
     environment {
         APP_NAME            = 'quarkus-game'
         GIT_REPO_URL        = 'https://github.com/psehgaft/openshift-quarkus-game.git'
@@ -287,25 +289,25 @@ pipeline {
             }
         }
 
-        stage('9. Generate SBOM & Scan Image') {
+        stage('8. Generate SBOM & Scan Image') {
             steps {
                 echo 'SBOM y escaneo de imagen pendientes de implementación'
             }
         }
 
-        stage('10. Quality & Security Gate') {
+        stage('9. Quality & Security Gate') {
             steps {
                 echo 'Quality & Security Gate pendiente de implementación'
             }
         }
 
-        stage('11. Sign & Attest') {
+        stage('10. Sign & Attest') {
             steps {
                 echo 'Firma y attestation pendientes de implementación'
             }
         }
         
-        stage('12. Deploy in Openshift') {
+        stage('11. Deploy in Openshift') {
             when {
                     allOf {
                         expression {
@@ -397,203 +399,49 @@ pipeline {
                     }
                 }
             }
-        } //cierre de stage 12
+        } //cierre de stage 11
 
-      // =========================================================================
-        // STAGE 13: VALIDACIÓN DEV Y DEPURACIÓN DE TAGS EN QUAY
         // =========================================================================
-        stage('13. Validate DEV & Tag Cleanup') {
-            when {
-                allOf {
-                    expression {
-                        params.RAMA_OVERRIDE?.trim() ? true : env.RAMA in ['develop', 'main']
-                    }
-                    expression {
-                        (params.APLICATIVO == 'SICATEL' && params.AMBIENTE in ['DEV', 'QA']) ||
-                        (params.APLICATIVO == 'KIOSCO'  && params.AMBIENTE == 'PREPROD')
-                    }
-                }
+        // STAGE 12: VALIDACIÓN DEV Y DEPURACIÓN DE TAGS EN QUAY
+        // =========================================================================
+        stage('Cleanup Quay Images') {
+    steps {
+        // 'quay-api-token' es el ID de la credencial en Jenkins
+        withCredentials([string(credentialsId: 'quay-push', variable: 'QUAY_TOKEN')]) {
+            script {
+                def quayUrl = "https://quay-9tfrr.apps.cluster-9tfrr.9tfrr.sandbox1834.opentlc.com/" // Cambia por tu URL
+                def org = "quayadmin"
+                def repo = "quarkus-game "
+
+                sh """
+                    # 1. Obtener lista de tags activos ordenados por fecha
+                    TAGS_JSON=\$(curl -s -X GET \
+                        -H "Authorization: Bearer ${QUAY_TOKEN}" \
+                        "https://${quayUrl}/api/v1/repository/${org}/${repo}/tag/?onlyActiveTags=true")
+
+                    # 2. Extraer los nombres de los tags a eliminar (todos menos los 2 más nuevos)
+                    # Explicación del comando jq:
+                    # - Ordena los tags por 'start_ts' (timestamp de inicio) de forma descendente
+                    # - Salta los primeros 2 ([2:])
+                    # - Extrae el nombre (.name)
+                    TAGS_TO_DELETE=\$(echo \$TAGS_JSON | jq -r '.tags | sort_by(.start_ts) | reverse | .[2:] | .[].name')
+
+                    if [ -z "\$TAGS_TO_DELETE" ]; then
+                        echo "No hay imágenes viejas para eliminar. Se conservan las 2 actuales."
+                    else
+                        for TAG in \$TAGS_TO_DELETE; do
+                            echo "Eliminando tag viejo: \$TAG"
+                            curl -s -X DELETE \
+                                -H "Authorization: Bearer ${QUAY_TOKEN}" \
+                                "https://${quayUrl}/api/v1/repository/${org}/${repo}/tag/\$TAG"
+                        done
+                    fi
+                """
             }
-            steps {
-                script {
-                    echo "Repositorio Quay: ${env.QUAY_REGISTRY}"
-                    echo "Modo de ejecución: ${params.CLEANUP_MODE}"
-                    echo "Tags que se conservarán: ${env.TAGS_TO_KEEP}"
+        }
+    }
+}
 
-                    withCredentials([file(
-                        credentialsId: "${env.QUAY_CREDENTIALS}",
-                        variable     : 'QUAY_AUTH_FILE'
-                    )]) {
-                        sh """
-                            set +x
-                            set -eu
-
-                            # Validar el archivo protegido que contiene la autenticación de Quay
-                            if [ ! -s "\$QUAY_AUTH_FILE" ]; then
-                                echo "ERROR: La credencial de Quay no está disponible."
-                                exit 1
-                            fi
-
-                            # Separar el hostname y la ruta del repositorio
-                            REGISTRY_HOST="\${QUAY_REGISTRY%%/*}"
-                            REPOSITORY_PATH="\${QUAY_REGISTRY#*/}"
-
-                            # Extraer la autenticación del robot desde el archivo protegido
-                            AUTH_B64=\$(
-                                tr -d '\\r\\n' < "\$QUAY_AUTH_FILE" | \
-                                grep -o '"auth"[[:space:]]*:[[:space:]]*"[^"]*"' | \
-                                head -n 1 | \
-                                cut -d '"' -f 4
-                            )
-
-                            if [ -z "\$AUTH_B64" ]; then
-                                echo "ERROR: No se encontró la autenticación del robot de Quay."
-                                exit 1
-                            fi
-
-                            # Crear archivos temporales protegidos para curl y el procesamiento de tags
-                            echo "Iniciando creación de archivos temporales protegidos para curl"
-                            CURL_CONFIG=\$(mktemp)
-                            TAGS_RESPONSE=\$(mktemp)
-                            TAGS_SORTED=\$(mktemp)
-                            DELETE_RESPONSE=\$(mktemp)
-
-                            chmod 600 \
-                                "\$CURL_CONFIG" \
-                                "\$TAGS_RESPONSE" \
-                                "\$TAGS_SORTED" \
-                                "\$DELETE_RESPONSE"
-
-                            trap 'rm -f "\$CURL_CONFIG" "\$TAGS_RESPONSE" "\$TAGS_SORTED" "\$DELETE_RESPONSE"' \
-                                EXIT HUP INT TERM
-
-                            printf 'header = "Authorization: Basic %s"\\n' \
-                                "\$AUTH_B64" > "\$CURL_CONFIG"
-
-                            unset AUTH_B64
-
-                            TAGS_API="https://\${REGISTRY_HOST}/api/v1/repository/\${REPOSITORY_PATH}/tag"
-
-                            # Consultar los tags activos del repositorio de Quay
-                            echo "Consultando tags activos en ${env.QUAY_REGISTRY}..."
-
-                            HTTP_CODE=\$(
-                                curl \
-                                    --silent \
-                                    --show-error \
-                                    --config "\$CURL_CONFIG" \
-                                    --output "\$TAGS_RESPONSE" \
-                                    --write-out "%{http_code}" \
-                                    "\${TAGS_API}/?onlyActiveTags=true&limit=\$QUERY_LIMIT"
-                            )
-
-                            if [ "\$HTTP_CODE" != "200" ]; then
-                                echo "ERROR: Quay respondió HTTP \${HTTP_CODE} al consultar tags."
-                                exit 1
-                            fi
-
-                            # Extraer el nombre y timestamp de cada tag y ordenarlos del más reciente al más antiguo
-                            tr '}' '\\n' < "\$TAGS_RESPONSE" | \
-                            while IFS= read -r LINE; do
-                                TAG_NAME=\$(
-                                    printf '%s' "\$LINE" | \
-                                    grep -o '"name"[[:space:]]*:[[:space:]]*"[^"]*"' | \
-                                    head -n 1 | \
-                                    cut -d '"' -f 4
-                                )
-
-                                TAG_TIMESTAMP=\$(
-                                    printf '%s' "\$LINE" | \
-                                    grep -o '"start_ts"[[:space:]]*:[[:space:]]*[0-9]*' | \
-                                    head -n 1 | \
-                                    cut -d ':' -f 2 | \
-                                    tr -d ' '
-                                )
-
-                                if [ -n "\$TAG_NAME" ]; then
-                                    printf '%s %s\\n' \
-                                        "\${TAG_TIMESTAMP:-0}" \
-                                        "\$TAG_NAME"
-                                fi
-                            done | \
-                            sort -rn > "\$TAGS_SORTED"
-
-                            TAG_COUNT=\$(
-                                awk 'END { print NR + 0 }' "\$TAGS_SORTED"
-                            )
-
-                            if [ "\$TAG_COUNT" -eq 0 ]; then
-                                echo "No se encontraron tags activos."
-                                exit 0
-                            fi
-
-                            echo "Tags encontrados: \$TAG_COUNT"
-                            echo "Tags ordenados del más reciente al más antiguo:"
-                            awk '{
-                                printf "  %d. %s (start_ts=%s)\\n", NR, \$2, \$1
-                            }' "\$TAGS_SORTED"
-
-                            echo "Tags que se conservarán:"
-                            awk -v keep="\$TAGS_TO_KEEP" 'NR <= keep {
-                                printf "  - %s\\n", \$2
-                            }' "\$TAGS_SORTED"
-
-                            TAGS_TO_DELETE=\$(
-                                awk -v keep="\$TAGS_TO_KEEP" 'NR > keep {
-                                    print \$2
-                                }' "\$TAGS_SORTED"
-                            )
-
-                            if [ -z "\$TAGS_TO_DELETE" ]; then
-                                echo "No existen tags excedentes para eliminar."
-                                exit 0
-                            fi
-
-                            echo "Tags candidatos a eliminación:"
-                            for TAG in \$TAGS_TO_DELETE; do
-                                echo "  - \${TAG}"
-                            done
-
-                            # En LIST_ONLY se valida el listado sin modificar el repositorio
-                            if [ "${params.CLEANUP_MODE}" = "LIST_ONLY" ]; then
-                                echo "Modo LIST_ONLY: no se eliminará ningún tag."
-                                exit 0
-                            fi
-
-                            # En DELETE se eliminan los tags excedentes y se conservan los dos más recientes
-                            DELETED_COUNT=0
-
-                            for TAG in \$TAGS_TO_DELETE; do
-                                echo "Eliminando tag antiguo: \${TAG}"
-
-                                HTTP_CODE=\$(
-                                    curl \
-                                        --silent \
-                                        --show-error \
-                                        --config "\$CURL_CONFIG" \
-                                        --output "\$DELETE_RESPONSE" \
-                                        --write-out "%{http_code}" \
-                                        --request DELETE \
-                                        "\${TAGS_API}/\${TAG}"
-                                )
-
-                                if [ "\$HTTP_CODE" != "204" ]; then
-                                    echo "ERROR: No se pudo eliminar el tag \${TAG}."
-                                    echo "Quay respondió HTTP \${HTTP_CODE}."
-                                    exit 1
-                                fi
-
-                                DELETED_COUNT=\$((DELETED_COUNT + 1))
-                            done
-
-                            echo "Depuración de Quay completada correctamente."
-                            echo "Tags eliminados: \${DELETED_COUNT}"
-                            echo "Tags conservados: \$TAGS_TO_KEEP"
-                        """
-                    }
-                }
-            }
-        } 
       
         
     }  //cierre de pipeline
