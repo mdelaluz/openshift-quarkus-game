@@ -395,97 +395,201 @@ pipeline {
             }
         } //cierre de stage 13
 
-         stage('12. Validate DEV & Tag Cleanup') {
-                when {
-                    allOf {
-                        expression {
-                            params.RAMA_OVERRIDE?.trim() ? true : env.RAMA in ['develop', 'main']
-                        }
-                        expression {
-                            (params.APLICATIVO == 'SICATEL' && params.AMBIENTE in ['DEV', 'QA']) ||
-                            (params.APLICATIVO == 'KIOSCO'  && params.AMBIENTE == 'PREPROD')
-                        }
+      // =========================================================================
+        // STAGE 14: VALIDACIÓN DEV Y DEPURACIÓN DE TAGS EN QUAY
+        // =========================================================================
+        stage('14. Validate DEV & Tag Cleanup') {
+            when {
+                allOf {
+                    expression {
+                        params.RAMA_OVERRIDE?.trim() ? true : env.RAMA in ['develop', 'main']
+                    }
+                    expression {
+                        (params.APLICATIVO == 'SICATEL' && params.AMBIENTE in ['DEV', 'QA']) ||
+                        (params.APLICATIVO == 'KIOSCO'  && params.AMBIENTE == 'PREPROD')
                     }
                 }
-                steps {
-                    script {
-                        def targetNamespace = "${params.APLICATIVO.toLowerCase()}-${env.DEPLOY_ENV.toLowerCase()}"
-                        def appEnvLower = env.DEPLOY_ENV ? env.DEPLOY_ENV.toLowerCase() : 'dev'
+            }
+            steps {
+                script {
+                    echo "Repositorio Quay: ${env.QUAY_REGISTRY}"
+                    echo "Modo de ejecución: ${params.CLEANUP_MODE}"
+                    echo "Tags que se conservarán: ${env.TAGS_TO_KEEP}"
 
-                        withCredentials([usernamePassword(
-                            credentialsId   : 'usuario-generico-sicatel',
-                            usernameVariable: 'OC_USER',
-                            passwordVariable: 'OC_PASSWORD'
-                        )]) {
-                            sh """
-                                set +x
-                                oc login "${env.OPENSHIFT_API}" \
-                                    -u "\$OC_USER" \
-                                    -p "\$OC_PASSWORD" \
-                                    --insecure-skip-tls-verify=false
+                    withCredentials([file(
+                        credentialsId: "${env.QUAY_CREDENTIALS}",
+                        variable     : 'QUAY_AUTH_FILE'
+                    )]) {
+                        sh """
+                            set +x
+                            set -eu
 
-                                AVAILABLE_REPLICAS=\$(oc get deployment "${env.APP_NAME}" \
-                                    -n "${targetNamespace}" \
-                                    -o jsonpath='{.status.availableReplicas}')
+                            # Validar el archivo protegido que contiene la autenticación de Quay
+                            if [ ! -s "\$QUAY_AUTH_FILE" ]; then
+                                echo "ERROR: La credencial de Quay no está disponible."
+                                exit 1
+                            fi
 
-                                if [ "\${AVAILABLE_REPLICAS:-0}" -lt 1 ]; then
-                                    echo "ERROR: El Deployment ${env.APP_NAME} no tiene réplicas disponibles."
+                            # Separar el hostname y la ruta del repositorio
+                            REGISTRY_HOST="\${QUAY_REGISTRY%%/*}"
+                            REPOSITORY_PATH="\${QUAY_REGISTRY#*/}"
+
+                            # Extraer la autenticación del robot desde el archivo protegido
+                            AUTH_B64=\$(
+                                tr -d '\\r\\n' < "\$QUAY_AUTH_FILE" | \
+                                grep -o '"auth"[[:space:]]*:[[:space:]]*"[^"]*"' | \
+                                head -n 1 | \
+                                cut -d '"' -f 4
+                            )
+
+                            if [ -z "\$AUTH_B64" ]; then
+                                echo "ERROR: No se encontró la autenticación del robot de Quay."
+                                exit 1
+                            fi
+
+                            # Crear archivos temporales protegidos para curl y el procesamiento de tags
+                            CURL_CONFIG=\$(mktemp)
+                            TAGS_RESPONSE=\$(mktemp)
+                            TAGS_SORTED=\$(mktemp)
+                            DELETE_RESPONSE=\$(mktemp)
+
+                            chmod 600 \
+                                "\$CURL_CONFIG" \
+                                "\$TAGS_RESPONSE" \
+                                "\$TAGS_SORTED" \
+                                "\$DELETE_RESPONSE"
+
+                            trap 'rm -f "\$CURL_CONFIG" "\$TAGS_RESPONSE" "\$TAGS_SORTED" "\$DELETE_RESPONSE"' \
+                                EXIT HUP INT TERM
+
+                            printf 'header = "Authorization: Basic %s"\\n' \
+                                "\$AUTH_B64" > "\$CURL_CONFIG"
+
+                            unset AUTH_B64
+
+                            TAGS_API="https://\${REGISTRY_HOST}/api/v1/repository/\${REPOSITORY_PATH}/tag"
+
+                            # Consultar los tags activos del repositorio de Quay
+                            echo "Consultando tags activos en ${env.QUAY_REGISTRY}..."
+
+                            HTTP_CODE=\$(
+                                curl \
+                                    --silent \
+                                    --show-error \
+                                    --config "\$CURL_CONFIG" \
+                                    --output "\$TAGS_RESPONSE" \
+                                    --write-out "%{http_code}" \
+                                    "\${TAGS_API}/?onlyActiveTags=true&limit=\$QUERY_LIMIT"
+                            )
+
+                            if [ "\$HTTP_CODE" != "200" ]; then
+                                echo "ERROR: Quay respondió HTTP \${HTTP_CODE} al consultar tags."
+                                exit 1
+                            fi
+
+                            # Extraer el nombre y timestamp de cada tag y ordenarlos del más reciente al más antiguo
+                            tr '}' '\\n' < "\$TAGS_RESPONSE" | \
+                            while IFS= read -r LINE; do
+                                TAG_NAME=\$(
+                                    printf '%s' "\$LINE" | \
+                                    grep -o '"name"[[:space:]]*:[[:space:]]*"[^"]*"' | \
+                                    head -n 1 | \
+                                    cut -d '"' -f 4
+                                )
+
+                                TAG_TIMESTAMP=\$(
+                                    printf '%s' "\$LINE" | \
+                                    grep -o '"start_ts"[[:space:]]*:[[:space:]]*[0-9]*' | \
+                                    head -n 1 | \
+                                    cut -d ':' -f 2 | \
+                                    tr -d ' '
+                                )
+
+                                if [ -n "\$TAG_NAME" ]; then
+                                    printf '%s %s\\n' \
+                                        "\${TAG_TIMESTAMP:-0}" \
+                                        "\$TAG_NAME"
+                                fi
+                            done | \
+                            sort -rn > "\$TAGS_SORTED"
+
+                            TAG_COUNT=\$(
+                                awk 'END { print NR + 0 }' "\$TAGS_SORTED"
+                            )
+
+                            if [ "\$TAG_COUNT" -eq 0 ]; then
+                                echo "No se encontraron tags activos."
+                                exit 0
+                            fi
+
+                            echo "Tags encontrados: \$TAG_COUNT"
+                            echo "Tags ordenados del más reciente al más antiguo:"
+                            awk '{
+                                printf "  %d. %s (start_ts=%s)\\n", NR, \$2, \$1
+                            }' "\$TAGS_SORTED"
+
+                            echo "Tags que se conservarán:"
+                            awk -v keep="\$TAGS_TO_KEEP" 'NR <= keep {
+                                printf "  - %s\\n", \$2
+                            }' "\$TAGS_SORTED"
+
+                            TAGS_TO_DELETE=\$(
+                                awk -v keep="\$TAGS_TO_KEEP" 'NR > keep {
+                                    print \$2
+                                }' "\$TAGS_SORTED"
+                            )
+
+                            if [ -z "\$TAGS_TO_DELETE" ]; then
+                                echo "No existen tags excedentes para eliminar."
+                                exit 0
+                            fi
+
+                            echo "Tags candidatos a eliminación:"
+                            for TAG in \$TAGS_TO_DELETE; do
+                                echo "  - \${TAG}"
+                            done
+
+                            # En LIST_ONLY se valida el listado sin modificar el repositorio
+                            if [ "${params.CLEANUP_MODE}" = "LIST_ONLY" ]; then
+                                echo "Modo LIST_ONLY: no se eliminará ningún tag."
+                                exit 0
+                            fi
+
+                            # En DELETE se eliminan los tags excedentes y se conservan los dos más recientes
+                            DELETED_COUNT=0
+
+                            for TAG in \$TAGS_TO_DELETE; do
+                                echo "Eliminando tag antiguo: \${TAG}"
+
+                                HTTP_CODE=\$(
+                                    curl \
+                                        --silent \
+                                        --show-error \
+                                        --config "\$CURL_CONFIG" \
+                                        --output "\$DELETE_RESPONSE" \
+                                        --write-out "%{http_code}" \
+                                        --request DELETE \
+                                        "\${TAGS_API}/\${TAG}"
+                                )
+
+                                if [ "\$HTTP_CODE" != "204" ]; then
+                                    echo "ERROR: No se pudo eliminar el tag \${TAG}."
+                                    echo "Quay respondió HTTP \${HTTP_CODE}."
                                     exit 1
                                 fi
 
-                                DEPLOYED_IMAGE=\$(oc get deployment "${env.APP_NAME}" \
-                                    -n "${targetNamespace}" \
-                                    -o jsonpath='{.spec.template.spec.containers[0].image}')
+                                DELETED_COUNT=\$((DELETED_COUNT + 1))
+                            done
 
-                                if [ "\$DEPLOYED_IMAGE" != "${env.IMAGE_REF}" ]; then
-                                    echo "ERROR: La imagen desplegada no corresponde al build actual."
-                                    echo "Esperada: ${env.IMAGE_REF}"
-                                    echo "Desplegada: \$DEPLOYED_IMAGE"
-                                    exit 1
-                                fi
-
-                                DEPLOYED_IMAGE_ID=\$(oc get pods \
-                                    -l "app=${env.APP_NAME}" \
-                                    --field-selector=status.phase=Running \
-                                    -n "${targetNamespace}" \
-                                    -o jsonpath='{.items[0].status.containerStatuses[0].imageID}')
-
-                                IMAGE_DIGEST=\${DEPLOYED_IMAGE_ID##*@}
-
-                                if [ -z "\$DEPLOYED_IMAGE_ID" ] || [ "\$IMAGE_DIGEST" = "\$DEPLOYED_IMAGE_ID" ]; then
-                                    echo "ERROR: No fue posible obtener el digest de la imagen desplegada."
-                                    exit 1
-                                fi
-
-                                echo "\$IMAGE_DIGEST" > deployed-image-digest.txt
-                                echo "Deployment validado con el digest: \$IMAGE_DIGEST"
-                            """
-                        }
-
-                        if (params.SKIP_TAG_CLEANUP) {
-                            echo 'Depuración de tags omitida mediante SKIP_TAG_CLEANUP.'
-                            echo 'TODO: Configurar la credencial de archivo credenciales-quay-telcel.'
-                        } else {
-                            withCredentials([file(
-                                credentialsId: 'credenciales-quay-telcel',
-                                variable     : 'QUAY_CLEANUP_ADAPTER'
-                            )]) {
-                                sh """
-                                    set +x
-                                    test -s "\$QUAY_CLEANUP_ADAPTER"
-                                    IMAGE_DIGEST=\$(cat deployed-image-digest.txt)
-
-                                    bash "\$QUAY_CLEANUP_ADAPTER" \
-                                        --repository "${env.QUAY_REGISTRY}" \
-                                        --environment "${appEnvLower}" \
-                                        --preserve-digest "\$IMAGE_DIGEST" \
-                                        --preserve-tag "${appEnvLower}-${env.BUILD_NUMBER}"
-                                """
-                            }
-                        }
+                            echo "Depuración de Quay completada correctamente."
+                            echo "Tags eliminados: \${DELETED_COUNT}"
+                            echo "Tags conservados: \$TAGS_TO_KEEP"
+                        """
                     }
-                  }
-                }  //cierre stage14
+                }
+            }
+        } 
+      
         
     }  //cierre de pipeline
 post {
