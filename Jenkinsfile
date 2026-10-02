@@ -415,48 +415,43 @@ pipeline {
             def repo       = "${APP_NAME}"
 
           sh """
-                # 1. Extracción del Token de Robot Account
-                # Si el secreto es un .dockerconfigjson de un Robot Account, el token es el 'password'.
-                # Primero obtenemos el auth en base64 y lo decodificamos para extraer solo la parte del token.
-                AUTH_BASE64=\$(oc get secret ${secretName} -n ${namespace} -o jsonpath='{.data.\\.dockerconfigjson}' | base64 -d | jq -r '.auths["${quayUrl}"].auth')
-                
-                # Decodificamos 'usuario:token' y extraemos solo lo que está después de los ':'
-                USER_PASS=\$(echo \$AUTH_BASE64 | base64 -d)
-                QUAY_TOKEN=\${USER_PASS#*:}
-            
-                if [ -z "\$QUAY_TOKEN" ]; then
-                    echo "ERROR: No se pudo obtener el token del secreto."
+                # 1. Validar existencia del secreto
+                if ! oc get secret ${secretName} -n ${namespace} > /dev/null 2>&1; then
+                    echo "ERROR: El secreto ${secretName} no existe."
                     exit 1
                 fi
-            
-                echo "Autenticando con Robot Token en el repositorio: ${org}/${repo}"
-            
-                # 2. Listar tags usando Bearer Token (más seguro para la API de gestión)
-                # Se utiliza el header Authorization: Bearer
-                TAGS_JSON=\$(curl -s -H "Authorization: Bearer \$QUAY_TOKEN" \
-                    -H "X-Requested-With: XMLHttpRequest" \
-                    "https://${quayUrl}/api/v1/repository/${org}/${repo}/tag/?onlyActiveTags=true")
-            
-                # 3. Filtrar los tags más antiguos (todos menos los 2 últimos)
-                TAGS_TO_DELETE=\$(echo \$TAGS_JSON | jq -r '.tags | sort_by(.start_ts) | reverse | .[2:] | .[].name')
-            
-                if [ -z "\$TAGS_TO_DELETE" ] || [ "\$TAGS_TO_DELETE" == "null" ]; then
-                    echo "No hay nada que borrar o no se encontraron tags. Manteniendo las imágenes actuales."
+
+                # 2. Extraer Token (Shell puro)
+                RAW_CONFIG=\$(oc get secret ${secretName} -n ${namespace} -o jsonpath='{.data.\\.dockerconfigjson}' | base64 -d)
+                # Buscamos el token de auth. Nota: Esto asume un formato estándar de dockerconfig
+                AUTH_BASE64=\$(echo "\$RAW_CONFIG" | grep -o '"auth": *"[^"]*"' | head -n1 | cut -d'"' -f4)
+                
+                if [ -z "\$AUTH_BASE64" ]; then
+                    echo "ERROR: No se pudo extraer la autenticación."
+                    exit 1
+                fi
+                
+                QUAY_TOKEN=\$(echo "\$AUTH_BASE64" | base64 -d | cut -d: -f2)
+
+                # 3. Obtener y Filtrar Tags
+                # Listamos tags, los convertimos a una lista plana, ordenamos por timestamp (numérico inverso) y saltamos los 2 primeros
+                TAGS_LIST=\$(curl -s -H "Authorization: Bearer \$QUAY_TOKEN" "https://${quayUrl}/api/v1/repository/${org}/${repo}/tag/?onlyActiveTags=true")
+                
+                # Transformación: cada tag en una línea -> extraer nombre y fecha -> ordenar -> borrar > 2
+                TAGS_TO_DELETE=\$(echo "\$TAGS_LIST" | sed 's/},{"/\\n/g' | sed 's/\\[{//; s/}]}//' | \
+                    grep -o '"name":"[^"]*"\\|"start_ts":[0-9]*' | \
+                    paste - - | \
+                    sed 's/"name":"//g; s/"start_ts"://g; s/"//g' | \
+                    sort -rnk2 | \
+                    awk 'NR > 2 {print \$1}')
+
+                if [ -z "\$TAGS_TO_DELETE" ]; then
+                    echo "No hay tags para borrar."
                 else
                     for TAG in \$TAGS_TO_DELETE; do
-                        echo "Intentando eliminar tag: \$TAG"
-                        # CAMBIO: Usamos el header de Authorization Bearer en lugar de -u
-                        STATUS_CODE=\$(curl -s -o /dev/null -w "%{http_code}" \
-                            -X DELETE \
-                            -H "Authorization: Bearer \$QUAY_TOKEN" \
-                            -H "X-Requested-With: XMLHttpRequest" \
-                            "https://${quayUrl}/api/v1/repository/${org}/${repo}/tag/\$TAG")
-                        
-                        if [ "\$STATUS_CODE" -eq 204 ]; then
-                            echo "Eliminado con éxito (204)."
-                        else
-                            echo "Fallo al eliminar tag \$TAG. Código HTTP: \$STATUS_CODE"
-                        fi
+                        echo "Borrando tag: \$TAG"
+                        STATUS=\$(curl -s -o /dev/null -w "%{http_code}" -X DELETE -H "Authorization: Bearer \$QUAY_TOKEN" "https://${quayUrl}/api/v1/repository/${org}/${repo}/tag/\$TAG")
+                        echo "Resultado: \$STATUS"
                     done
                 fi
             """
