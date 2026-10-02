@@ -415,6 +415,7 @@ pipeline {
             def repo       = "${APP_NAME}"
 
           sh """
+                set +x
                 # 1. Validar existencia del secreto
                 if ! oc get secret ${secretName} -n ${namespace} > /dev/null 2>&1; then
                     echo "ERROR: El secreto ${secretName} no existe."
