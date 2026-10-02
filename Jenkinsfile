@@ -431,9 +431,9 @@ pipeline {
                     echo "ERROR: No se pudo extraer la autenticación."
                     exit 1
                 fi
-                
+                    
                 QUAY_TOKEN=\$(echo "\$AUTH_BASE64" | base64 -d | cut -d: -f2)
-
+                set -x
                 # 3. Obtener y Filtrar Tags
                 # Listamos tags, los convertimos a una lista plana, ordenamos por timestamp (numérico inverso) y saltamos los 2 primeros
                 TAGS_LIST=\$(curl -s -H "Authorization: Bearer \$QUAY_TOKEN" "https://${quayUrl}/api/v1/repository/${org}/${repo}/tag/?onlyActiveTags=true")
