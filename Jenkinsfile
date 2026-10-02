@@ -414,38 +414,41 @@ pipeline {
             def org        = "quayadmin" // Basado en tu usuario de Quay
             def repo       = "${APP_NAME}"
 
-            sh """
-                # 1. Extracción robusta de credenciales
-                # Extraemos el campo 'auth' completo (que es user:password en base64)
+          sh """
+                # 1. Extracción del Token de Robot Account
+                # Si el secreto es un .dockerconfigjson de un Robot Account, el token es el 'password'.
+                # Primero obtenemos el auth en base64 y lo decodificamos para extraer solo la parte del token.
                 AUTH_BASE64=\$(oc get secret ${secretName} -n ${namespace} -o jsonpath='{.data.\\.dockerconfigjson}' | base64 -d | jq -r '.auths["${quayUrl}"].auth')
                 
-                # Decodificamos el par usuario:password
+                # Decodificamos 'usuario:token' y extraemos solo lo que está después de los ':'
                 USER_PASS=\$(echo \$AUTH_BASE64 | base64 -d)
-
-                if [ -z "\$USER_PASS" ]; then
-                    echo "ERROR: No se pudo obtener la credencial del secreto."
+                QUAY_TOKEN=\${USER_PASS#*:}
+            
+                if [ -z "\$QUAY_TOKEN" ]; then
+                    echo "ERROR: No se pudo obtener el token del secreto."
                     exit 1
                 fi
-
-                echo "Autenticando como: \${USER_PASS%:*} en el repositorio: ${org}/${repo}"
-
-                # 2. Listar tags usando Basic Auth (más fiable si usas el secreto del registro)
-                # Agregamos el header X-Requested-With para evitar errores de CSRF
-                TAGS_JSON=\$(curl -s -u "\$USER_PASS" \
+            
+                echo "Autenticando con Robot Token en el repositorio: ${org}/${repo}"
+            
+                # 2. Listar tags usando Bearer Token (más seguro para la API de gestión)
+                # Se utiliza el header Authorization: Bearer
+                TAGS_JSON=\$(curl -s -H "Authorization: Bearer \$QUAY_TOKEN" \
                     -H "X-Requested-With: XMLHttpRequest" \
                     "https://${quayUrl}/api/v1/repository/${org}/${repo}/tag/?onlyActiveTags=true")
-
+            
                 # 3. Filtrar los tags más antiguos (todos menos los 2 últimos)
                 TAGS_TO_DELETE=\$(echo \$TAGS_JSON | jq -r '.tags | sort_by(.start_ts) | reverse | .[2:] | .[].name')
-
-                if [ -z "\$TAGS_TO_DELETE" ]; then
-                    echo "No hay nada que borrar. Manteniendo las 2 imágenes más recientes."
+            
+                if [ -z "\$TAGS_TO_DELETE" ] || [ "\$TAGS_TO_DELETE" == "null" ]; then
+                    echo "No hay nada que borrar o no se encontraron tags. Manteniendo las imágenes actuales."
                 else
                     for TAG in \$TAGS_TO_DELETE; do
                         echo "Intentando eliminar tag: \$TAG"
-                        # USAMOS -u PARA BASIC AUTH Y EL HEADER X-Requested-With PARA EL CSRF
-                        STATUS_CODE=\$(curl -s -o /dev/null -w "%{http_code}" -u "\$USER_PASS" \
+                        # CAMBIO: Usamos el header de Authorization Bearer en lugar de -u
+                        STATUS_CODE=\$(curl -s -o /dev/null -w "%{http_code}" \
                             -X DELETE \
+                            -H "Authorization: Bearer \$QUAY_TOKEN" \
                             -H "X-Requested-With: XMLHttpRequest" \
                             "https://${quayUrl}/api/v1/repository/${org}/${repo}/tag/\$TAG")
                         
@@ -457,6 +460,7 @@ pipeline {
                     done
                 fi
             """
+
         }
     }
 } //Cierre stage
